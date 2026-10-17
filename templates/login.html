@@ -234,8 +234,8 @@
               type="text" 
               name="username" 
               class="login-input" 
-              placeholder="e.g. skpaltrader" 
-              value="{{ default_user or 'skpaltrader' }}" 
+              placeholder="Enter your username" 
+              value="{{ default_user or '' }}" 
               required 
               autofocus
             >
@@ -268,10 +268,6 @@
           <span>Sign In</span>
           <span>&rarr;</span>
         </button>
-
-        <div class="credential-hint-box">
-          Default login: <code>skpaltrader</code> &bull; Pass: <code>success*</code>
-        </div>
       </form>
 
       <div class="login-footer-info">

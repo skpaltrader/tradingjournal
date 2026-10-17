@@ -86,7 +86,7 @@ def login():
         return render_template(
             'login.html',
             next_url=request.args.get('next', ''),
-            default_user=Config.ADMIN_USERNAME
+            default_user=''
         )
     
     # POST handling
@@ -108,7 +108,7 @@ def login():
             'login.html',
             error='Invalid username or password. Please check your credentials and try again.',
             next_url=next_url,
-            default_user=username or Config.ADMIN_USERNAME
+            default_user=username
         )
 
 @app.route('/logout')
