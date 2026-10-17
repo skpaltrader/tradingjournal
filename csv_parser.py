@@ -7,7 +7,7 @@ from dateutil import parser as date_parser
 
 def clean_number(val):
     """
-    Cleans string with currency symbols ($1,234.50, -€50, (500)) into a float.
+    Cleans string with currency symbols ($1,234.50, -50, (500), 92%) into a float.
     """
     if val is None:
         return 0.0
@@ -15,13 +15,12 @@ def clean_number(val):
     if not val_str:
         return 0.0
         
-    # Check for accounting style negative: (500.00)
     is_paren_negative = False
     if val_str.startswith('(') and val_str.endswith(')'):
         is_paren_negative = True
         val_str = val_str[1:-1]
         
-    # Remove currency symbols and formatting
+    # Strip % and non-number chars
     cleaned = re.sub(r'[^\d.\-+]', '', val_str)
     if not cleaned or cleaned in ['-', '+', '.']:
         return 0.0
@@ -36,14 +35,14 @@ def clean_number(val):
 
 def parse_date_string(date_str):
     """
-    Parses various date formats to ISO YYYY-MM-DD HH:MM:SS string.
+    Parses date formats to ISO YYYY-MM-DD HH:MM:SS string.
+    Quotex format is typically DD-MM-YYYY HH:MM or DD.MM.YYYY HH:MM:SS.
     """
     if not date_str or not str(date_str).strip():
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     s = str(date_str).strip()
     try:
-        # Common Quotex format: DD.MM.YYYY HH:MM:SS or YYYY-MM-DD HH:MM:SS
         dt = date_parser.parse(s, dayfirst=True)
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     except Exception:
@@ -76,6 +75,8 @@ def match_column_fuzzy(header_name, candidates):
 def parse_quotex_csv(file_content, default_payout=85.0):
     """
     Parses CSV text or bytes and returns list of trade dicts.
+    Specially optimized for Quotex's official export columns:
+    Info, Profit, ID, Open time, Open Price, Close Time, Close Price, Type, Amount, Income
     """
     if isinstance(file_content, bytes):
         try:
@@ -99,8 +100,11 @@ def parse_quotex_csv(file_content, default_payout=85.0):
         return [], "CSV file is empty."
 
     header = [h.strip() for h in rows[0]]
-    
-    # Map column indexes
+    norm_headers = [normalize_header(h) for h in header]
+
+    # Check for Quotex official export layout (has Info, Profit (percentage), and Income)
+    is_quotex_official = ('info' in norm_headers and ('income' in norm_headers or 'amount' in norm_headers))
+
     col_map = {
         'id': None,
         'date_time': None,
@@ -109,26 +113,42 @@ def parse_quotex_csv(file_content, default_payout=85.0):
         'investment': None,
         'payout_rate': None,
         'profit': None,
+        'income': None,
         'result': None,
         'open_price': None,
         'close_price': None
     }
-    
-    category_candidates = [
-        ('id', ['ticket', 'dealid', 'tradeid', 'orderid', 'order', 'deal', 'id']),
-        ('date_time', ['timeopen', 'opentime', 'datetime', 'timestamp', 'createdat', 'date', 'time', 'closetime', 'timeclose']),
-        ('asset', ['asset', 'pair', 'currency', 'symbol', 'market', 'instrument']),
-        ('direction', ['direction', 'type', 'action', 'option', 'callput', 'side', 'tradetype']),
-        ('open_price', ['openingquote', 'openquote', 'openprice', 'entryprice', 'strike']),
-        ('close_price', ['closingquote', 'closequote', 'closeprice', 'exitprice']),
-        ('investment', ['investment', 'invest', 'stake', 'amount', 'volume', 'value', 'size']),
-        ('profit', ['netprofit', 'profit', 'netincome', 'pnl', 'payoutamount', 'income']),
-        ('payout_rate', ['payoutrate', 'payoutpercent', 'profitpercent', 'returnpercent', 'yield', 'payout']),
-        ('result', ['result', 'status', 'outcome', 'dealresult', 'traderesult', 'state'])
-    ]
+
+    if is_quotex_official:
+        # Precision mapping for Quotex's exact official header scheme
+        category_candidates = [
+            ('asset', ['info', 'asset', 'pair', 'currency', 'symbol']),
+            ('payout_rate', ['profit', 'payoutrate', 'payoutpercent', 'profitpercent', 'yield']),
+            ('id', ['id', 'dealid', 'tradeid', 'ticket']),
+            ('date_time', ['opentime', 'timeopen', 'datetime', 'timestamp', 'date']),
+            ('open_price', ['openprice', 'openingquote', 'entryprice', 'openquote']),
+            ('close_price', ['closeprice', 'closingquote', 'exitprice', 'closequote']),
+            ('direction', ['type', 'direction', 'action', 'option']),
+            ('investment', ['amount', 'investment', 'invest', 'stake']),
+            ('income', ['income', 'grossincome', 'payoutamount', 'return'])
+        ]
+    else:
+        category_candidates = [
+            ('id', ['ticket', 'dealid', 'tradeid', 'orderid', 'order', 'deal', 'id']),
+            ('date_time', ['timeopen', 'opentime', 'datetime', 'timestamp', 'createdat', 'date', 'time', 'closetime']),
+            ('asset', ['info', 'asset', 'pair', 'currency', 'symbol', 'market', 'instrument']),
+            ('direction', ['direction', 'type', 'action', 'option', 'callput', 'side', 'tradetype']),
+            ('open_price', ['openingquote', 'openquote', 'openprice', 'entryprice', 'strike']),
+            ('close_price', ['closingquote', 'closequote', 'closeprice', 'exitprice']),
+            ('investment', ['investment', 'invest', 'stake', 'amount', 'volume', 'value', 'size']),
+            ('profit', ['netprofit', 'profit', 'netincome', 'pnl']),
+            ('income', ['income', 'payoutamount', 'grossincome', 'payout', 'return']),
+            ('payout_rate', ['payoutrate', 'payoutpercent', 'profitpercent', 'returnpercent', 'yield']),
+            ('result', ['result', 'status', 'outcome', 'dealresult', 'traderesult', 'state'])
+        ]
 
     assigned_indices = set()
-    # Pass 1: Exact matches for highest priority and accuracy
+    # Pass 1: Exact matches
     for key, cands in category_candidates:
         if col_map[key] is None:
             for idx, col in enumerate(header):
@@ -137,7 +157,7 @@ def parse_quotex_csv(file_content, default_payout=85.0):
                     assigned_indices.add(idx)
                     break
 
-    # Pass 2: Substring / Fuzzy matches for remaining unmapped columns
+    # Pass 2: Fuzzy matches for remaining unmapped columns
     for key, cands in category_candidates:
         if col_map[key] is None:
             for idx, col in enumerate(header):
@@ -160,10 +180,12 @@ def parse_quotex_csv(file_content, default_payout=85.0):
 
         raw_id = get_val('id')
         raw_date = get_val('date_time')
-        raw_asset = get_val('asset') or 'EUR/USD'
+        raw_asset = get_val('asset') or 'USD/INR (OTC)'
         raw_dir = get_val('direction').lower()
         raw_invest = clean_number(get_val('investment'))
         raw_payout = clean_number(get_val('payout_rate'))
+        raw_income_str = get_val('income')
+        raw_income = clean_number(raw_income_str) if raw_income_str else None
         raw_profit_str = get_val('profit')
         raw_profit = clean_number(raw_profit_str) if raw_profit_str else None
         raw_result = get_val('result').lower()
@@ -184,89 +206,82 @@ def parse_quotex_csv(file_content, default_payout=85.0):
         # Payout rate fallback
         if raw_payout <= 0:
             payout_rate = default_payout
-        elif raw_payout <= 1.0: # like 0.85
+        elif raw_payout <= 1.0: # e.g. 0.85 -> 85.0%
             payout_rate = raw_payout * 100.0
         else:
             payout_rate = raw_payout
 
-        # Determine Result & Profit
+        # Determine Result & Net Profit
         result = None
         profit = None
 
-        # 1. Explicit Result column if present
-        if raw_result:
-            if any(w in raw_result for w in ['win', 'won', 'profit', 'success', 'itp']):
+        # Priority 1: Official Quotex with 'Income' column
+        if raw_income is not None:
+            if abs(raw_income - investment) < 0.01 and investment > 0:
+                result = 'REFUND' # Breakeven: invested 500, returned 500
+                profit = 0.0
+            elif raw_income > investment:
                 result = 'WIN'
-            elif any(l in raw_result for l in ['loss', 'lost', 'fail', 'otm']):
+                profit = round(raw_income - investment, 2)
+            elif raw_income == 0 or raw_income < investment:
                 result = 'LOSS'
-            elif any(r in raw_result for r in ['refund', 'tie', 'equal', 'push', 'draw', 'void', 'atm', 'neutral', 'return', 'breakeven', 'even', 'be']):
-                result = 'REFUND'
-
-        # 2. Priority 1: Check Breakeven where return amount equals investment (invested 500 -> returned 500: no loss, no gain)
-        if result is None and raw_profit is not None and raw_profit_str:
-            if abs(raw_profit - investment) < 0.01 and investment > 0:
-                result = 'REFUND'
-                profit = 0.0
-
-        # 3. Priority 2: Mathematical outcome from Opening Quote vs Closing Quote
-        # When opening quote equals closing quote, it is a Breakeven/Tie in binary options
-        if result is None and open_p is not None and close_p is not None and open_p > 0 and close_p > 0:
-            if abs(close_p - open_p) < 1e-9:
-                # Exact same quote -> Breakeven / Tie
-                result = 'REFUND'
-                profit = 0.0
-            elif direction == 'UP':
-                if close_p > open_p:
-                    result = 'WIN'
-                else:
-                    result = 'LOSS'
-            else: # DOWN
-                if close_p < open_p:
-                    result = 'WIN'
-                else:
-                    result = 'LOSS'
-
-        # 4. Priority 3: Deduce from raw_profit / payout column
-        if result is None:
-            if raw_profit is not None and raw_profit_str:
-                if raw_profit < 0:
-                    result = 'LOSS'
-                elif raw_profit > investment:
-                    # Gross return > stake -> WIN
-                    result = 'WIN'
-                elif abs(raw_profit - investment) < 0.01:
-                    # Return equals stake (Breakeven / Tie)
-                    result = 'REFUND'
-                elif raw_profit > 0:
-                    # Positive net profit -> WIN
-                    result = 'WIN'
-                else:
-                    # In Quotex and binary brokers, payout/profit of 0 indicates a LOSS
-                    result = 'LOSS'
-            else:
-                result = 'WIN'
-
-        # 5. Compute accurate net profit based on result
-        if result == 'WIN':
-            if raw_profit is not None and raw_profit_str:
-                if raw_profit > investment:
-                    # Gross payout (e.g. 925 on 500 investment -> net profit = +425)
-                    profit = round(raw_profit - investment, 2)
-                elif raw_profit > 0:
-                    # Already net profit (e.g. +425)
-                    profit = round(raw_profit, 2)
-                else:
-                    profit = round(investment * (payout_rate / 100.0), 2)
-            else:
-                profit = round(investment * (payout_rate / 100.0), 2)
-        elif result == 'LOSS':
-            if raw_profit is not None and raw_profit < 0:
-                profit = round(raw_profit, 2)
-            else:
-                # Binary options loss forfeits the entire stake
                 profit = round(-investment, 2)
-        else: # REFUND / BREAKEVEN (No loss, no gain)
-            profit = 0.0
+        else:
+            # Priority 2: Explicit Result column if present
+            if raw_result:
+                if any(w in raw_result for w in ['win', 'won', 'profit', 'success', 'itp']):
+                    result = 'WIN'
+                elif any(l in raw_result for l in ['loss', 'lost', 'fail', 'otm']):
+                    result = 'LOSS'
+                elif any(r in raw_result for r in ['refund', 'tie', 'equal', 'push', 'draw', 'void', 'atm', 'neutral', 'return', 'breakeven', 'even']):
+                    result = 'REFUND'
+
+            # Priority 3: Price comparison (Open quote vs Close quote)
+            if result is None and open_p is not None and close_p is not None and open_p > 0 and close_p > 0:
+                if abs(close_p - open_p) < 1e-9:
+                    result = 'REFUND'
+                    profit = 0.0
+                elif direction == 'UP':
+                    if close_p > open_p:
+                        result = 'WIN'
+                    else:
+                        result = 'LOSS'
+                else: # DOWN
+                    if close_p < open_p:
+                        result = 'WIN'
+                    else:
+                        result = 'LOSS'
+
+            # Priority 4: Monetary Profit column
+            if result is None:
+                if raw_profit is not None and raw_profit_str:
+                    if raw_profit < 0:
+                        result = 'LOSS'
+                        profit = raw_profit
+                    elif raw_profit > investment:
+                        result = 'WIN'
+                        profit = round(raw_profit - investment, 2)
+                    elif abs(raw_profit - investment) < 0.01:
+                        result = 'REFUND'
+                        profit = 0.0
+                    elif raw_profit > 0:
+                        result = 'WIN'
+                        profit = raw_profit
+                    else:
+                        result = 'LOSS'
+                        profit = round(-investment, 2)
+                else:
+                    result = 'WIN'
+
+            # Compute profit based on result if still unset
+            if result == 'WIN':
+                if profit is None:
+                    profit = round(investment * (payout_rate / 100.0), 2)
+            elif result == 'LOSS':
+                if profit is None:
+                    profit = round(-investment, 2)
+            else:
+                profit = 0.0
 
         date_time = parse_date_string(raw_date)
         trade_id = raw_id if raw_id else f"QX-{uuid.uuid4().hex[:10].upper()}"

@@ -59,7 +59,7 @@ def insert_trades_bulk(trades_list):
     for t in trades_list:
         try:
             cursor.execute('''
-                INSERT OR IGNORE INTO trades 
+                INSERT OR REPLACE INTO trades 
                 (trade_id, date_time, asset, direction, investment, payout_rate, profit, result, open_price, close_price)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
