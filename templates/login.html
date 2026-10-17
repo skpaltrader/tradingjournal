@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login &bull; Quotex Trading Journal</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 20%, rgba(124, 58, 237, 0.15), transparent 60%), #0a0d18;
+      padding: 16px;
+      margin: 0;
+      font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+      color: #f1f5f9;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .login-card {
+      background: rgba(17, 21, 36, 0.92);
+      border: 1px solid rgba(124, 58, 237, 0.35);
+      border-radius: 18px;
+      padding: 36px 32px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 30px rgba(124, 58, 237, 0.12);
+      backdrop-filter: blur(16px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #7c3aed, #6366f1, #10b981);
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .login-logo {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(124, 58, 237, 0.45);
+      color: #fff;
+    }
+
+    .login-title {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin: 0 0 6px 0;
+      color: #fff;
+    }
+
+    .login-subtitle {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin: 0;
+    }
+
+    .login-alert {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 0.84rem;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      margin-bottom: 20px;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #64748b;
+      font-size: 1.1rem;
+      pointer-events: none;
+    }
+
+    .login-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: rgba(10, 13, 24, 0.8);
+      border: 1px solid #242c4c;
+      border-radius: 12px;
+      padding: 13px 44px 13px 44px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: all 0.2s ease;
+    }
+
+    .login-input:focus {
+      outline: none;
+      border-color: #7c3aed;
+      background: rgba(15, 19, 35, 0.95);
+      box-shadow: 0 0 16px rgba(124, 58, 237, 0.35);
+    }
+
+    .toggle-pwd-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 1.05rem;
+      padding: 4px;
+      border-radius: 6px;
+      transition: color 0.15s ease;
+    }
+
+    .toggle-pwd-btn:hover {
+      color: #fff;
+    }
+
+    .btn-login-submit {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .btn-login-submit:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 26px rgba(124, 58, 237, 0.5);
+      filter: brightness(1.1);
+    }
+
+    .btn-login-submit:active {
+      transform: translateY(1px);
+    }
+
+    .login-footer-info {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 0.78rem;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    .credential-hint-box {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px dashed rgba(100, 116, 139, 0.3);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-top: 18px;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      text-align: center;
+    }
+
+    .credential-hint-box code {
+      color: #a78bfa;
+      background: rgba(124, 58, 237, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono, monospace);
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-logo">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+            <polyline points="17 6 23 6 23 12"></polyline>
+          </svg>
+        </div>
+        <h1 class="login-title">Quotex Journal</h1>
+        <p class="login-subtitle">Sign in to your private trading tracker & P&L analytics</p>
+      </div>
+
+      {% if error %}
+      <div class="login-alert">
+        <span>⚠️</span>
+        <div>{{ error }}</div>
+      </div>
+      {% endif %}
+
+      <form method="POST" action="/login">
+        <input type="hidden" name="next" value="{{ next_url or '' }}">
+        
+        <div style="margin-bottom: 6px;">
+          <label style="font-size: 0.8rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 6px;">
+            Username
+          </label>
+          <div class="input-wrapper">
+            <span class="input-icon">👤</span>
+            <input 
+              type="text" 
+              name="username" 
+              class="login-input" 
+              placeholder="e.g. skpaltrader" 
+              value="{{ default_user or 'skpaltrader' }}" 
+              required 
+              autofocus
+            >
+          </div>
+        </div>
+
+        <div style="margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: #cbd5e1;">
+              Password
+            </label>
+          </div>
+          <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input 
+              type="password" 
+              name="password" 
+              id="password-input" 
+              class="login-input" 
+              placeholder="Enter your password" 
+              required
+            >
+            <button type="button" class="toggle-pwd-btn" onclick="togglePasswordVisibility()" title="Show/Hide Password">
+              👁️
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-login-submit">
+          <span>Sign In</span>
+          <span>&rarr;</span>
+        </button>
+
+        <div class="credential-hint-box">
+          Default login: <code>skpaltrader</code> &bull; Pass: <code>success*</code>
+        </div>
+      </form>
+
+      <div class="login-footer-info">
+        <div>Quotex P&L Tracker &bull; Password-Protected Session</div>
+        <div style="font-size: 0.72rem; margin-top: 4px; color: #475569;">
+          Safe for phone, tablet, and remote access
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function togglePasswordVisibility() {
+      const input = document.getElementById('password-input');
+      if (input.type === 'password') {
+        input.type = 'text';
+      } else {
+        input.type = 'password';
+      }
+    }
+  </script>
+</body>
+</html>

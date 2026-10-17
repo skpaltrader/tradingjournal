@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quotex Trading Journal & P&L Tracker</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="/static/js/chart.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+            <polyline points="17 6 23 6 23 12"></polyline>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>Quotex Journal</h1>
+          <div class="brand-badge">PRO ANALYTICS</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item active" data-tab="dashboard">
+          <span class="icon">📊</span>
+          <span>Dashboard</span>
+          <span class="nav-badge-hot">HOT</span>
+        </a>
+        <a class="nav-item" data-tab="analytics">
+          <span class="icon">📈</span>
+          <span>Analytics</span>
+          <span class="nav-badge-hot">HOT</span>
+        </a>
+        <a class="nav-item" data-tab="breakdown">
+          <span class="icon">📅</span>
+          <span>P&L Breakdown</span>
+          <span class="nav-badge-hot">HOT</span>
+        </a>
+        <a class="nav-item" data-tab="heatmap-tab">
+          <span class="icon">🗓️</span>
+          <span>P&L Heatmap</span>
+        </a>
+        <a class="nav-item" data-tab="history">
+          <span class="icon">📜</span>
+          <span>Trade History</span>
+          <span class="nav-badge-count" id="sidebar-total-badge">0</span>
+        </a>
+        <a class="nav-item" data-tab="import-csv">
+          <span class="icon">📥</span>
+          <span>Import CSV</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user-card">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="user-avatar-circle">👤</div>
+            <div style="display: flex; flex-direction: column;">
+              <span class="sidebar-username">{{ username }}</span>
+              <span class="sidebar-user-status">● Protected</span>
+            </div>
+          </div>
+          <a href="/logout" class="sidebar-logout-btn" title="Sign Out">
+            <span>🚪</span>
+          </a>
+        </div>
+        <div class="server-status" style="margin-top: 10px;">
+          <span class="status-dot"></span>
+          <span>Server Live &bull; Port 8000</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Mobile Sidebar Backdrop -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleSidebar()"></div>
+
+    <!-- Main Wrapper -->
+    <div class="main-wrapper">
+      <!-- Top Navigation Bar -->
+      <header class="top-bar">
+        <div class="top-bar-left">
+          <button class="mobile-menu-btn" id="mobile-menu-toggle" onclick="toggleSidebar()" aria-label="Toggle Navigation">
+            <span>☰</span>
+          </button>
+          <div>
+            <div class="page-title" id="page-title-text">Dashboard</div>
+            <div class="page-desc" id="page-desc-text">Deep dive into your Quotex trading performance</div>
+          </div>
+        </div>
+        
+        <div class="top-bar-actions">
+          <!-- Currency 1-Click Toggle: INR & USD -->
+          <div class="currency-toggle-group">
+            <button type="button" class="curr-toggle-btn active" id="btn-curr-inr" onclick="setCurrency('₹')">₹ INR</button>
+            <button type="button" class="curr-toggle-btn" id="btn-curr-usd" onclick="setCurrency('$')">$ USD</button>
+          </div>
+
+          <button class="btn btn-secondary btn-sm" id="btn-open-new-trade">
+            <span>+</span> New Trade
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="switchTab('import-csv')">
+            <span>📥</span> Files
+          </button>
+
+          <!-- User Pill & Logout Button -->
+          <div class="user-header-pill">
+            <span class="user-pill-icon">👤</span>
+            <span class="user-pill-name">{{ username }}</span>
+          </div>
+          <a href="/logout" class="btn btn-danger btn-sm btn-logout" title="Sign Out of Quotex Journal">
+            <span>🚪</span>
+            <span class="logout-text">Logout</span>
+          </a>
+        </div>
+      </header>
+
+      <!-- Content Area -->
+      <main class="content-body">
+        
+        <!-- TAB 1: DASHBOARD -->
+        <div id="tab-dashboard" class="tab-content active">
+          <!-- Banner -->
+          <div class="vip-banner">
+            <div class="vip-banner-content">
+              <div class="vip-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 2L11 13"></path>
+                  <path d="M22 2l-7 20-4-9-9-4 20-7z"></path>
+                </svg>
+              </div>
+              <div class="vip-text">
+                <h3>Quotex Trading Journal & Performance Analytics</h3>
+                <p>Track your wins, losses, refunds, and daily/weekly/monthly money curve in real-time.</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" onclick="loadSampleData()">
+                ⚡ Load Sample Trades
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="switchTab('import-csv')">
+                Upload Quotex CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Top 4 KPI Cards (Image 4) -->
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">P&L ALL TIME</span>
+                <div class="kpi-icon text-purple">$</div>
+              </div>
+              <div class="kpi-value" id="kpi-total-pnl">$0.00</div>
+              <div class="kpi-subtext" id="kpi-pnl-sub">↑ 0 trades</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">WIN RATE</span>
+                <div class="kpi-icon text-win">🎯</div>
+              </div>
+              <div class="kpi-value text-win" id="kpi-win-rate">0.0%</div>
+              <div class="kpi-subtext" id="kpi-win-sub">0W / 0L / 0R</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">PROFIT FACTOR</span>
+                <div class="kpi-icon text-purple">📊</div>
+              </div>
+              <div class="kpi-value text-purple" id="kpi-profit-factor">0.00</div>
+              <div class="kpi-subtext" id="kpi-pf-sub">Gross Win / Gross Loss</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">TOTAL TRADES</span>
+                <div class="kpi-icon">⚡</div>
+              </div>
+              <div class="kpi-value" id="kpi-total-trades">0</div>
+            </div>
+          </div>
+
+          <!-- Charts Row (Image 4): Equity Curve & Win Rate Donut -->
+          <div class="charts-grid-main">
+            <!-- Equity Curve Card -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <span>📈</span>
+                  <span>Equity Curve (Increase / Decrease in Money)</span>
+                </div>
+                <div class="card-actions">
+                  <div class="pill-group" id="equity-timeframe-pills">
+                    <button class="pill-btn active" data-tf="all">All</button>
+                    <button class="pill-btn" data-tf="1year">1 Year</button>
+                    <button class="pill-btn" data-tf="3month">3 Months</button>
+                    <button class="pill-btn" data-tf="month">Month</button>
+                    <button class="pill-btn" data-tf="week">Week</button>
+                  </div>
+                </div>
+              </div>
+              <div style="height: 320px; width: 100%;">
+                <canvas id="equityCurveChart"></canvas>
+              </div>
+            </div>
+
+            <!-- Win Rate Radial / Donut Card -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <span>🎯</span>
+                  <span>Win Rate Distribution</span>
+                </div>
+              </div>
+              <div style="height: 250px; position: relative;">
+                <canvas id="winRateDonutChart"></canvas>
+                <div id="donut-center-text" style="position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;">
+                  <div style="font-size: 1.6rem; font-weight: 800; font-family: var(--font-mono);" id="donut-percentage">0%</div>
+                  <div style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase;">Win Rate</div>
+                </div>
+              </div>
+              <div style="display: flex; justify-content: space-around; margin-top: 15px; font-size: 0.8rem; font-weight: 600;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="width: 10px; height: 10px; border-radius: 3px; background: var(--color-win);"></span>
+                  <span id="donut-wins-label">Wins: 0</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="width: 10px; height: 10px; border-radius: 3px; background: var(--color-loss);"></span>
+                  <span id="donut-losses-label">Losses: 0</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="width: 10px; height: 10px; border-radius: 3px; background: var(--color-refund);"></span>
+                  <span id="donut-refunds-label">Refunds: 0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Grid: Recent Trades & P&L Heatmap (Image 2) -->
+          <div class="dashboard-bottom-grid">
+            <!-- Recent Trades Card -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <span>⚡</span>
+                  <span>Recent Trades</span>
+                </div>
+                <a href="#" onclick="switchTab('history'); return false;" style="font-size: 0.82rem; color: #a78bfa; text-decoration: none; font-weight: 600;">View All →</a>
+              </div>
+              <div class="trades-list" id="dashboard-recent-trades">
+                <div style="text-align: center; color: var(--text-dim); padding: 40px;">No trades recorded yet. Upload a CSV or load demo data.</div>
+              </div>
+            </div>
+
+            <!-- P&L Heatmap Card (Image 2) -->
+            <div class="card" id="dashboard-heatmap-card">
+              <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
+                <div class="card-title">
+                  <span>🗓️</span>
+                  <span>P&L Heatmap</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px; margin-left: auto;">
+                  <div class="pill-group" id="heatmap-range-pills">
+                    <button class="pill-btn active" data-range="1m">1 Month</button>
+                    <button class="pill-btn" data-range="3m">3 Months</button>
+                    <button class="pill-btn" data-range="12m">12 Months</button>
+                  </div>
+                  <div style="font-size: 1.1rem; font-weight: 800; font-family: var(--font-mono);" id="heatmap-total-badge">₹0.00</div>
+                </div>
+              </div>
+              
+              <!-- Month nav -->
+              <div class="calendar-header-nav">
+                <button class="btn btn-secondary btn-sm" id="btn-prev-month">‹ Prev Month</button>
+                <div class="calendar-month-title" id="calendar-current-month-label">October 2026</div>
+                <button class="btn btn-secondary btn-sm" id="btn-next-month">Next Month ›</button>
+              </div>
+
+              <!-- Calendar Months Container (Supports 1 month, 3 months, 12 months) -->
+              <div id="calendar-months-view">
+                <div class="single-month-block">
+                  <div class="calendar-weekdays">
+                    <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                  </div>
+                  <div class="calendar-grid" id="calendar-days-container"></div>
+                </div>
+              </div>
+
+              <div class="heatmap-legend">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span class="legend-color" style="background: rgba(16, 185, 129, 0.25); border: 1px solid var(--color-win);"></span>
+                  <span>Profit Day</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span class="legend-color" style="background: rgba(239, 68, 68, 0.25); border: 1px solid var(--color-loss);"></span>
+                  <span>Loss Day</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span class="legend-color" style="background: rgba(245, 158, 11, 0.25); border: 1px solid var(--color-refund);"></span>
+                  <span>Refund / Break Even</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span class="legend-color" style="background: var(--bg-card); border: 1px solid var(--border-color);"></span>
+                  <span>No Trades</span>
+                </div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: ANALYTICS (Image 1) -->
+        <div id="tab-analytics" class="tab-content">
+          <!-- Timeframe Selector -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h2 style="font-size: 1.35rem; font-weight: 700;">Performance Analytics</h2>
+              <p style="font-size: 0.85rem; color: var(--text-muted);">Detailed financial metrics and daily P&L distribution</p>
+            </div>
+            <div class="pill-group" id="analytics-timeframe-pills">
+              <button class="pill-btn active" data-tf="all">All Time</button>
+              <button class="pill-btn" data-tf="today">Today</button>
+              <button class="pill-btn" data-tf="week">This Week</button>
+              <button class="pill-btn" data-tf="month">This Month</button>
+              <button class="pill-btn" data-tf="3month">3 Months</button>
+              <button class="pill-btn" data-tf="1year">1 Year</button>
+            </div>
+          </div>
+
+          <!-- 8 KPI Cards (Image 1) -->
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">TOTAL P&L</span>
+                <span class="kpi-icon">$</span>
+              </div>
+              <div class="kpi-value" id="ana-total-pnl">$0.00</div>
+              <div class="kpi-subtext" id="ana-pnl-sub">Net Profit / Loss</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">WIN RATE</span>
+                <span class="kpi-icon">🎯</span>
+              </div>
+              <div class="kpi-value text-win" id="ana-win-rate">0.0%</div>
+              <div class="kpi-subtext" id="ana-win-sub">0W / 0L / 0R</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">PROFIT FACTOR</span>
+                <span class="kpi-icon">📊</span>
+              </div>
+              <div class="kpi-value text-purple" id="ana-profit-factor">0.00</div>
+              <div class="kpi-subtext">Wins / Losses Ratio</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">EXPECTANCY</span>
+                <span class="kpi-icon">📐</span>
+              </div>
+              <div class="kpi-value" id="ana-expectancy">$0.00</div>
+              <div class="kpi-subtext">Expected value per trade</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">AVG WIN</span>
+                <span class="kpi-icon text-win">↗</span>
+              </div>
+              <div class="kpi-value text-win" id="ana-avg-win">$0.00</div>
+              <div class="kpi-subtext">Average profit on win</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">AVG LOSS</span>
+                <span class="kpi-icon text-loss">↘</span>
+              </div>
+              <div class="kpi-value text-loss" id="ana-avg-loss">$0.00</div>
+              <div class="kpi-subtext">Average loss on loss</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">BEST TRADE</span>
+                <span class="kpi-icon text-win">🏆</span>
+              </div>
+              <div class="kpi-value text-win" id="ana-best-trade">+$0.00</div>
+              <div class="kpi-subtext">Highest single gain</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">WORST TRADE</span>
+                <span class="kpi-icon text-loss">⚠️</span>
+              </div>
+              <div class="kpi-value text-loss" id="ana-worst-trade">-$0.00</div>
+              <div class="kpi-subtext">Largest single loss</div>
+            </div>
+          </div>
+
+          <!-- Daily P&L Bar Chart (Image 1) -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div class="card-title">
+                <span>📊</span>
+                <span>Daily P&L Distribution (Green = Profit, Red = Loss)</span>
+              </div>
+            </div>
+            <div style="height: 340px; width: 100%;">
+              <canvas id="dailyPnlBarChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: P&L BREAKDOWN (Daily, Weekly, Monthly, 3 Months, 1 Year) -->
+        <div id="tab-breakdown" class="tab-content">
+          <div style="margin-bottom: 24px;">
+            <h2 style="font-size: 1.35rem; font-weight: 700;">P&L Breakdown</h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">
+              Track your daily, weekly, monthly, 3-month, and 1-year P&L separately. Positive numbers in green, negative numbers in red.
+            </p>
+          </div>
+
+          <!-- Sub-navigation Pills -->
+          <div class="breakdown-nav-pills">
+            <button class="breakdown-pill active" onclick="loadBreakdownView('daily', this)">
+              <span>📅</span> Daily P&L
+            </button>
+            <button class="breakdown-pill" onclick="loadBreakdownView('weekly', this)">
+              <span>📆</span> Weekly P&L
+            </button>
+            <button class="breakdown-pill" onclick="loadBreakdownView('monthly', this)">
+              <span>🗓️</span> Monthly P&L
+            </button>
+            <button class="breakdown-pill" onclick="loadBreakdownView('3month', this)">
+              <span>📊</span> 3-Month P&L (Quarterly)
+            </button>
+            <button class="breakdown-pill" onclick="loadBreakdownView('1year', this)">
+              <span>📈</span> 1-Year P&L (Annual)
+            </button>
+          </div>
+
+          <!-- Breakdown Table Card -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title" id="breakdown-table-title">
+                <span>📅</span>
+                <span>Daily P&L Breakdown</span>
+              </div>
+              <div id="breakdown-summary-badge" style="font-size: 1.1rem; font-weight: 800; font-family: var(--font-mono);"></div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th style="text-align: center;">Total Trades</th>
+                    <th style="text-align: center;">Wins</th>
+                    <th style="text-align: center;">Losses</th>
+                    <th style="text-align: center;">Refunds</th>
+                    <th style="text-align: center;">Win Rate</th>
+                    <th style="text-align: right;">Total Stake</th>
+                    <th style="text-align: right;">Net P&L</th>
+                  </tr>
+                </thead>
+                <tbody id="breakdown-table-body">
+                  <tr>
+                    <td colspan="8" style="text-align: center; color: var(--text-dim); padding: 40px;">
+                      Loading breakdown data...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: CALENDAR HEATMAP FULL TAB -->
+        <div id="tab-heatmap-tab" class="tab-content">
+          <div style="margin-bottom: 24px;">
+            <h2 style="font-size: 1.35rem; font-weight: 700;">P&L Heatmap Calendar</h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">
+              Visual calendar view showing winning days (green), losing days (red), and refunds/draws (yellow).
+            </p>
+          </div>
+
+          <div class="card" style="max-width: 1200px; margin: 0 auto;">
+            <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
+              <div class="card-title">
+                <span>🗓️</span>
+                <span>P&L Heatmap Calendar</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; margin-left: auto;">
+                <div class="pill-group" id="full-heatmap-range-pills">
+                  <button class="pill-btn active" data-range="1m">1 Month</button>
+                  <button class="pill-btn" data-range="3m">3 Months</button>
+                  <button class="pill-btn" data-range="12m">12 Months</button>
+                </div>
+                <div style="font-size: 1.25rem; font-weight: 800; font-family: var(--font-mono);" id="full-heatmap-pnl">₹0.00</div>
+              </div>
+            </div>
+
+            <div class="calendar-header-nav">
+              <button class="btn btn-secondary btn-sm" id="full-btn-prev">‹ Prev Month</button>
+              <div class="calendar-month-title" id="full-heatmap-month-label">October 2026</div>
+              <button class="btn btn-secondary btn-sm" id="full-btn-next">Next Month ›</button>
+            </div>
+
+            <div id="full-calendar-months-view"></div>
+
+            <div class="heatmap-legend" style="margin-top: 24px;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="legend-color" style="background: rgba(16, 185, 129, 0.25); border: 1px solid var(--color-win);"></span>
+                <span>Profit Day</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="legend-color" style="background: rgba(239, 68, 68, 0.25); border: 1px solid var(--color-loss);"></span>
+                <span>Loss Day</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="legend-color" style="background: rgba(245, 158, 11, 0.25); border: 1px solid var(--color-refund);"></span>
+                <span>Refund / Break Even</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="legend-color" style="background: var(--bg-card); border: 1px solid var(--border-color);"></span>
+                <span>No Trades</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: TRADE HISTORY -->
+        <div id="tab-history" class="tab-content">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h2 style="font-size: 1.35rem; font-weight: 700;">Trade History</h2>
+              <p style="font-size: 0.85rem; color: var(--text-muted);">Complete record of all imported Quotex trades</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" onclick="exportSampleCSV()">
+                📥 Download CSV
+              </button>
+              <button class="btn btn-danger btn-sm" onclick="confirmClearTrades()">
+                🗑️ Clear All Trades
+              </button>
+            </div>
+          </div>
+
+          <!-- Filters Row -->
+          <div class="card" style="margin-bottom: 20px; padding: 14px 20px;">
+            <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+              <div style="flex: 1; min-width: 200px;">
+                <input type="text" id="history-search-input" class="form-control" placeholder="Search by asset (e.g. USD/BRL) or trade ID...">
+              </div>
+              <div style="width: 150px;">
+                <select id="history-result-filter" class="form-control">
+                  <option value="">All Results</option>
+                  <option value="WIN">WIN (Green)</option>
+                  <option value="LOSS">LOSS (Red)</option>
+                  <option value="REFUND">REFUND (Yellow)</option>
+                </select>
+              </div>
+              <div style="width: 180px;">
+                <select id="history-asset-filter" class="form-control">
+                  <option value="">All Assets / Pairs</option>
+                </select>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="loadTradeHistory(0)">
+                Filter
+              </button>
+            </div>
+          </div>
+
+          <!-- History Table Card -->
+          <div class="card">
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Trade ID</th>
+                    <th>Date & Time</th>
+                    <th>Asset / Pair</th>
+                    <th>Direction</th>
+                    <th style="text-align: right;">Stake</th>
+                    <th style="text-align: center;">Payout %</th>
+                    <th style="text-align: center;">Result</th>
+                    <th style="text-align: right;">Net Profit</th>
+                    <th style="text-align: center;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="history-table-body">
+                  <tr>
+                    <td colspan="9" style="text-align: center; color: var(--text-dim); padding: 40px;">
+                      No trades to display.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pagination -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-color);">
+              <div style="font-size: 0.85rem; color: var(--text-muted);" id="history-pagination-info">
+                Showing 0 to 0 of 0 trades
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" id="btn-history-prev" onclick="historyPrevPage()">Previous</button>
+                <button class="btn btn-secondary btn-sm" id="btn-history-next" onclick="historyNextPage()">Next</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 6: IMPORT CSV (Image 3) -->
+        <div id="tab-import-csv" class="tab-content">
+          <div class="upload-container">
+            <div style="margin-bottom: 24px; text-align: center;">
+              <h2 style="font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px;">Import Trades from CSV</h2>
+              <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 4px;">
+                Export your trade history from Quotex and import them here in bulk
+              </p>
+            </div>
+
+            <!-- How to Export Guide (Image 3) -->
+            <div class="instructions-card">
+              <div class="instructions-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                </svg>
+                <span>How to export from Quotex</span>
+              </div>
+              
+              <div class="instruction-step">
+                <div class="step-num">1</div>
+                <div>Log into your Quotex account on web browser.</div>
+              </div>
+              <div class="instruction-step">
+                <div class="step-num">2</div>
+                <div>Go to <strong>Trade History</strong> or <strong>Transactions</strong> sidebar.</div>
+              </div>
+              <div class="instruction-step">
+                <div class="step-num">3</div>
+                <div>Export or download CSV file (or paste trade table).</div>
+              </div>
+              <div class="instruction-step">
+                <div class="step-num">4</div>
+                <div>Drag and drop the downloaded file into the upload zone below.</div>
+              </div>
+            </div>
+
+            <!-- Payout % Setting Slider (Image 3) -->
+            <div class="slider-container">
+              <div class="slider-header">
+                <span class="slider-title">Payout % Fallback Setting</span>
+                <span class="slider-value-badge" id="slider-payout-val">90%</span>
+              </div>
+              <div class="slider-desc">
+                What is your broker's payout % on winning trades if not explicitly written in the CSV? (Win P&L = Investment × Payout%)
+              </div>
+              <input type="range" min="50" max="100" value="90" class="custom-range-slider" id="payout-slider">
+              <div style="font-size: 0.8rem; color: var(--color-win); margin-top: 8px; font-weight: 600;" id="slider-preview-text">
+                Example: $1,000 investment × 90% = +$900 profit on a win
+              </div>
+            </div>
+
+            <!-- Dropzone -->
+            <div class="dropzone" id="csv-dropzone">
+              <input type="file" id="csv-file-input" accept=".csv,text/csv" style="display: none;">
+              <div class="dropzone-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </div>
+              <div class="dropzone-title">Tap to select CSV file(s) or drag & drop here</div>
+              <div class="dropzone-sub">
+                Supports Quotex CSV format, LegendJournal format, and custom trading spreadsheets
+              </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div style="display: flex; gap: 12px; margin-top: 24px; justify-content: center; flex-wrap: wrap;">
+              <button class="btn btn-secondary" onclick="loadSampleData()">
+                ⚡ Load Sample Quotex Trades
+              </button>
+              <button class="btn btn-secondary" onclick="exportSampleCSV()">
+                📥 Download CSV Template
+              </button>
+              <button class="btn btn-danger" onclick="confirmClearTrades()">
+                🗑️ Clear All Trades
+              </button>
+            </div>
+
+            <!-- Stored Files Manager (Requirement 2) -->
+            <div class="card" style="margin-top: 36px; text-align: left;">
+              <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
+                <div class="card-title">
+                  <span>📁</span>
+                  <span>Stored Files & Upload History</span>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="loadUploadedFiles()" title="Refresh file list">
+                  🔄 Refresh Files
+                </button>
+              </div>
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>File Name</th>
+                      <th>Upload Date</th>
+                      <th style="text-align: right;">Size</th>
+                      <th style="text-align: center;">Imported Trades</th>
+                      <th style="text-align: center;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="files-table-body">
+                    <tr>
+                      <td colspan="5" style="text-align: center; color: var(--text-dim); padding: 30px;">
+                        Loading stored files...
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal: New Single Trade -->
+  <div class="modal-overlay" id="modal-new-trade">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; font-weight: 700;">+ Log New Trade</h3>
+        <button class="modal-close" onclick="closeNewTradeModal()">&times;</button>
+      </div>
+      <form id="form-new-trade" onsubmit="submitNewTrade(event)">
+        <div class="form-group">
+          <label class="form-label">Asset / Currency Pair</label>
+          <input type="text" id="new-trade-asset" list="asset-suggestions" class="form-control" placeholder="e.g. USD/INR (OTC)" value="USD/INR (OTC)" required>
+          <datalist id="asset-suggestions">
+            <option value="USD/INR (OTC)">
+            <option value="EUR/INR (OTC)">
+            <option value="GBP/INR (OTC)">
+            <option value="CAD/INR (OTC)">
+            <option value="USD/BRL (OTC)">
+            <option value="EUR/USD">
+            <option value="GBP/JPY (OTC)">
+            <option value="CAD/CHF (OTC)">
+            <option value="AUD/CAD (OTC)">
+          </datalist>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Direction</label>
+            <select id="new-trade-direction" class="form-control">
+              <option value="UP">CALL / UP (Green)</option>
+              <option value="DOWN">PUT / DOWN (Red)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Result</label>
+            <select id="new-trade-result" class="form-control">
+              <option value="WIN">WIN (Green)</option>
+              <option value="LOSS">LOSS (Red)</option>
+              <option value="REFUND">REFUND / TIE (Yellow)</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Investment Amount</label>
+            <input type="number" step="0.01" id="new-trade-investment" class="form-control" placeholder="100.00" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Payout %</label>
+            <input type="number" step="1" id="new-trade-payout" class="form-control" value="85" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date & Time</label>
+          <input type="datetime-local" id="new-trade-date" class="form-control" required>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeNewTradeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Trade</button>
+        </div>
+      </form>
+  </div>
+
+  <!-- Modal: Edit Single Trade (Requirement 2) -->
+  <div class="modal-overlay" id="modal-edit-trade">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; font-weight: 700;">✏️ Edit Trade Record</h3>
+        <button class="modal-close" onclick="closeEditTradeModal()">&times;</button>
+      </div>
+      <form id="form-edit-trade" onsubmit="submitEditTrade(event)">
+        <input type="hidden" id="edit-trade-id">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Trade Ticket / ID</label>
+            <input type="text" id="edit-trade-ticket" class="form-control" readonly style="opacity: 0.8; background: rgba(0,0,0,0.25);">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Date & Time</label>
+            <input type="text" id="edit-trade-datetime" class="form-control" placeholder="YYYY-MM-DD HH:MM:SS" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Asset / Currency Pair</label>
+          <input type="text" id="edit-trade-asset" list="asset-suggestions" class="form-control" placeholder="e.g. USD/INR (OTC)" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Direction</label>
+            <select id="edit-trade-direction" class="form-control">
+              <option value="UP">CALL / UP (Green)</option>
+              <option value="DOWN">PUT / DOWN (Red)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Result</label>
+            <select id="edit-trade-result" class="form-control" onchange="autoCalculateEditProfit()">
+              <option value="WIN">WIN (Green)</option>
+              <option value="LOSS">LOSS (Red)</option>
+              <option value="REFUND">REFUND / TIE (Yellow)</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Investment Amount</label>
+            <input type="number" step="0.01" id="edit-trade-investment" class="form-control" placeholder="100.00" oninput="autoCalculateEditProfit()" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Payout %</label>
+            <input type="number" step="1" id="edit-trade-payout" class="form-control" value="85" oninput="autoCalculateEditProfit()" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Net Profit Amount (positive for win, negative for loss)</label>
+          <input type="number" step="0.01" id="edit-trade-profit" class="form-control" placeholder="e.g. 85.00 or -100.00" required>
+        </div>
+        <div style="display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" onclick="closeEditTradeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- App JavaScript -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
