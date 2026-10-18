@@ -21,6 +21,7 @@ from database import (
     insert_trades_bulk,
     add_single_trade,
     clear_all_trades,
+    cleanup_sample_trades,
     delete_trade_by_id,
     get_trade_by_id,
     update_trade_by_id,
@@ -162,11 +163,21 @@ def upload_csv():
         with open(saved_file_path, 'wb') as f:
             f.write(content)
             
+        # Also persist to quotex_history.csv so container restarts keep the latest uploaded trades
+        history_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'quotex_history.csv')
+        try:
+            with open(history_csv_path, 'wb') as hf:
+                hf.write(content)
+        except Exception as e:
+            print(f"Warning writing quotex_history.csv: {e}")
+            
         # Parse trades
         trades, err = parse_quotex_csv(content, default_payout=payout_rate)
         if err:
             return jsonify({'success': False, 'error': err}), 400
             
+        # Automatically purge dummy demo/sample trades so real financial data is never mixed with sample data
+        cleanup_sample_trades()
         inserted_count = insert_trades_bulk(trades)
         
         # Register in uploaded_files table
@@ -314,6 +325,11 @@ def clear_trades_endpoint():
     clear_all_trades()
     return jsonify({'success': True, 'message': 'All trade records cleared.'})
 
+@app.route('/api/trades/clear-sample', methods=['POST'])
+def clear_sample_trades_endpoint():
+    deleted = cleanup_sample_trades()
+    return jsonify({'success': True, 'deleted': deleted, 'message': f'Removed {deleted} demo/sample trades.'})
+
 # -------------------------------------------------------------------------
 # SAMPLE DATA & EXPORT
 # -------------------------------------------------------------------------
@@ -332,6 +348,47 @@ def export_sample_csv():
         mimetype="text/csv",
         headers={"Content-disposition": "attachment; filename=quotex_sample_trades.csv"}
     )
+
+@app.route('/api/export-trades', methods=['GET'])
+def export_trades_endpoint():
+    """Exports all current trades to a downloadable CSV file."""
+    res = get_trades(limit=100000, offset=0)
+    trades = res.get('trades', [])
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Trade ID', 'Date & Time', 'Asset / Pair', 'Direction', 'Stake', 'Payout %', 'Result', 'Net Profit', 'Open Price', 'Close Price'])
+    for t in trades:
+        writer.writerow([
+            t.get('trade_id', ''),
+            t.get('date_time', ''),
+            t.get('asset', ''),
+            t.get('direction', ''),
+            t.get('investment', 0.0),
+            f"{t.get('payout_rate', 0)}%",
+            t.get('result', ''),
+            t.get('profit', 0.0),
+            t.get('open_price', ''),
+            t.get('close_price', '')
+        ])
+    filename = f"quotex_trade_history_{int(time.time())}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-disposition": f"attachment; filename={filename}"}
+    )
+
+@app.route('/api/backup-db', methods=['GET'])
+def backup_database_endpoint():
+    """Allows 1-click download of the active SQLite database file."""
+    db_path = Config.DATABASE_PATH
+    if os.path.exists(db_path):
+        return send_file(
+            db_path,
+            as_attachment=True,
+            download_name="quotex_trades.db",
+            mimetype="application/x-sqlite3"
+        )
+    return jsonify({'success': False, 'error': 'Database file not found'}), 404
 
 # -------------------------------------------------------------------------
 # SERVER ENTRYPOINT

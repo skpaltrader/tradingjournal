@@ -44,8 +44,32 @@ def init_db():
             uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Clean up any leftover demo/sample trades
+    cursor.execute("DELETE FROM trades WHERE trade_id LIKE 'QX-1000%'")
     conn.commit()
+
+    # Check if trades table is empty
+    cursor.execute("SELECT count(*) FROM trades")
+    trade_count = cursor.fetchone()[0]
+    
     conn.close()
+
+    # Auto-restore authentic trades from quotex_history.csv if database has 0 trades
+    if trade_count == 0:
+        history_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'quotex_history.csv')
+        if os.path.exists(history_csv_path):
+            try:
+                from csv_parser import parse_quotex_csv
+                with open(history_csv_path, 'rb') as f:
+                    csv_bytes = f.read()
+                trades, err = parse_quotex_csv(csv_bytes)
+                if trades:
+                    insert_trades_bulk(trades)
+                    print(f"Auto-restored {len(trades)} trades from quotex_history.csv on startup.")
+            except Exception as e:
+                print(f"Warning: could not auto-load quotex_history.csv: {e}")
+
 
 def insert_trades_bulk(trades_list):
     """
@@ -113,6 +137,16 @@ def clear_all_trades():
     cursor.execute('DELETE FROM trades')
     conn.commit()
     conn.close()
+
+def cleanup_sample_trades():
+    """Removes demo/sample trades (QX-1000...) from the database so they do not contaminate real data."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM trades WHERE trade_id LIKE 'QX-1000%'")
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
 
 def delete_trade_by_id(trade_pk):
     conn = get_connection()

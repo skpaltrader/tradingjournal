@@ -36,23 +36,54 @@ def clean_number(val):
 def parse_date_string(date_str):
     """
     Parses date formats to ISO YYYY-MM-DD HH:MM:SS string.
-    Quotex format is typically DD-MM-YYYY HH:MM or DD.MM.YYYY HH:MM:SS.
+    Quotex format is strictly DD-MM-YYYY HH:MM or DD.MM.YYYY HH:MM:SS.
+    Uses regex first to guarantee day and month are never swapped.
     """
     if not date_str or not str(date_str).strip():
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     s = str(date_str).strip()
+    
+    # 1. Match DD-MM-YYYY or DD.MM.YYYY or DD/MM/YYYY with optional HH:MM[:SS]
+    m_ddmmyyyy = re.match(
+        r'^(\d{1,2})[-./](\d{1,2})[-./](\d{4})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?',
+        s
+    )
+    if m_ddmmyyyy:
+        day = int(m_ddmmyyyy.group(1))
+        month = int(m_ddmmyyyy.group(2))
+        year = int(m_ddmmyyyy.group(3))
+        hour = int(m_ddmmyyyy.group(4)) if m_ddmmyyyy.group(4) is not None else 0
+        minute = int(m_ddmmyyyy.group(5)) if m_ddmmyyyy.group(5) is not None else 0
+        second = int(m_ddmmyyyy.group(6)) if m_ddmmyyyy.group(6) is not None else 0
+        
+        # Sanity check: valid month (1-12) and day (1-31)
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+
+    # 2. Match ISO YYYY-MM-DD or YYYY.MM.DD or YYYY/MM/DD
+    m_yyyymmdd = re.match(
+        r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?',
+        s
+    )
+    if m_yyyymmdd:
+        year = int(m_yyyymmdd.group(1))
+        month = int(m_yyyymmdd.group(2))
+        day = int(m_yyyymmdd.group(3))
+        hour = int(m_yyyymmdd.group(4)) if m_yyyymmdd.group(4) is not None else 0
+        minute = int(m_yyyymmdd.group(5)) if m_yyyymmdd.group(5) is not None else 0
+        second = int(m_yyyymmdd.group(6)) if m_yyyymmdd.group(6) is not None else 0
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+
+    # 3. Fallback to date_parser with dayfirst=True
     try:
         dt = date_parser.parse(s, dayfirst=True)
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     except Exception:
         pass
         
-    try:
-        dt = date_parser.parse(s)
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
-    except Exception:
-        return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 def normalize_header(header_name):
     return re.sub(r'[^a-z0-9]', '', str(header_name).lower())
