@@ -31,6 +31,7 @@ from database import (
     get_calendar_heatmap,
     get_breakdown,
     get_trades,
+    get_all_exchange_rates,
     add_uploaded_file,
     get_uploaded_files,
     get_uploaded_file_by_id,
@@ -234,8 +235,9 @@ def stats_endpoint():
     timeframe = request.args.get('timeframe', 'all')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
+    currency = request.args.get('currency', 'INR')
     
-    stats = get_stats(timeframe=timeframe, start_date=start_date, end_date=end_date)
+    stats = get_stats(timeframe=timeframe, start_date=start_date, end_date=end_date, currency=currency)
     return jsonify({'success': True, 'stats': stats})
 
 @app.route('/api/equity-curve', methods=['GET'])
@@ -243,8 +245,9 @@ def equity_curve_endpoint():
     timeframe = request.args.get('timeframe', 'all')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
+    currency = request.args.get('currency', 'INR')
     
-    curve = get_equity_curve(timeframe=timeframe, start_date=start_date, end_date=end_date)
+    curve = get_equity_curve(timeframe=timeframe, start_date=start_date, end_date=end_date, currency=currency)
     return jsonify({'success': True, 'data': curve})
 
 @app.route('/api/daily-pnl', methods=['GET'])
@@ -252,14 +255,16 @@ def daily_pnl_endpoint():
     timeframe = request.args.get('timeframe', 'all')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
+    currency = request.args.get('currency', 'INR')
     
-    data = get_daily_pnl_chart(timeframe=timeframe, start_date=start_date, end_date=end_date)
+    data = get_daily_pnl_chart(timeframe=timeframe, start_date=start_date, end_date=end_date, currency=currency)
     return jsonify({'success': True, 'data': data})
 
 @app.route('/api/breakdown', methods=['GET'])
 def breakdown_endpoint():
     period_type = request.args.get('type', 'daily') # 'daily', 'weekly', 'monthly', '3month', '1year'
-    data = get_breakdown(period_type=period_type)
+    currency = request.args.get('currency', 'INR')
+    data = get_breakdown(period_type=period_type, currency=currency)
     return jsonify({'success': True, 'period_type': period_type, 'breakdown': data})
 
 @app.route('/api/heatmap', methods=['GET'])
@@ -269,8 +274,14 @@ def heatmap_endpoint():
     tab = request.args.get('tab')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    data = get_calendar_heatmap(year_month=month, tab=tab, start_date=start_date, end_date=end_date, range_type=range_type)
+    currency = request.args.get('currency', 'INR')
+    data = get_calendar_heatmap(year_month=month, tab=tab, start_date=start_date, end_date=end_date, range_type=range_type, currency=currency)
     return jsonify({'success': True, 'heatmap': data})
+
+@app.route('/api/exchange-rates', methods=['GET'])
+def exchange_rates_endpoint():
+    rates, latest = get_all_exchange_rates()
+    return jsonify({'success': True, 'rates': rates, 'latest': latest})
 
 # -------------------------------------------------------------------------
 # TRADE MANAGEMENT ENDPOINTS (VIEW, ADD, EDIT, DELETE)
@@ -282,8 +293,9 @@ def trades_endpoint():
     result_filter = request.args.get('result')
     asset_filter = request.args.get('asset')
     search = request.args.get('search')
+    currency = request.args.get('currency', 'INR')
     
-    result = get_trades(limit=limit, offset=offset, result_filter=result_filter, asset_filter=asset_filter, search=search)
+    result = get_trades(limit=limit, offset=offset, result_filter=result_filter, asset_filter=asset_filter, search=search, currency=currency)
     return jsonify({'success': True, 'data': result})
 
 @app.route('/api/trades/<int:trade_id>', methods=['GET'])

@@ -98,6 +98,9 @@
             <button type="button" class="curr-toggle-btn active" id="btn-curr-inr" onclick="setCurrency('₹')">₹ INR</button>
             <button type="button" class="curr-toggle-btn" id="btn-curr-usd" onclick="setCurrency('$')">$ USD</button>
           </div>
+          <span id="usd-rate-pill" style="display: none; font-size: 0.75rem; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); padding: 5px 10px; border-radius: 8px; font-family: var(--font-mono); font-weight: 600;" title="Historical daily exchange rates applied per trade date; live rate for new/future trades">
+            <span style="color: #10b981;">●</span> USD Mode (Live: $1 = ₹<span id="live-usd-rate-val">95.08</span>)
+          </span>
 
           <button class="btn btn-secondary btn-sm" id="btn-open-new-trade">
             <span>+</span> New Trade
@@ -147,8 +150,8 @@
             </div>
           </div>
 
-          <!-- Top 4 KPI Cards (Image 4) -->
-          <div class="kpi-grid">
+          <!-- Top 5 KPI Cards -->
+          <div class="kpi-grid kpi-grid-5">
             <div class="kpi-card">
               <div class="kpi-card-header">
                 <span class="kpi-title">P&L ALL TIME</span>
@@ -182,6 +185,16 @@
                 <div class="kpi-icon">⚡</div>
               </div>
               <div class="kpi-value" id="kpi-total-trades">0</div>
+              <div class="kpi-subtext" id="kpi-trades-sub">Closed Positions</div>
+            </div>
+
+            <div class="kpi-card" style="cursor: pointer;" onclick="switchTab('breakdown')" title="Click to view daily traded volume breakdown">
+              <div class="kpi-card-header">
+                <span class="kpi-title">TRADED VOLUME</span>
+                <div class="kpi-icon" style="color: #38bdf8; background: rgba(56, 189, 248, 0.15);">💼</div>
+              </div>
+              <div class="kpi-value" id="kpi-total-volume" style="color: #38bdf8;">$0.00</div>
+              <div class="kpi-subtext" id="kpi-volume-sub">Avg $0.00 / day</div>
             </div>
           </div>
 
@@ -333,7 +346,7 @@
           </div>
 
           <!-- 8 KPI Cards (Image 1) -->
-          <div class="kpi-grid">
+          <div class="kpi-grid kpi-grid-4">
             <div class="kpi-card">
               <div class="kpi-card-header">
                 <span class="kpi-title">TOTAL P&L</span>
@@ -469,7 +482,7 @@
                     <th style="text-align: center;">Losses</th>
                     <th style="text-align: center;">Refunds</th>
                     <th style="text-align: center;">Win Rate</th>
-                    <th style="text-align: right;">Total Stake</th>
+                    <th style="text-align: right;">Traded Volume</th>
                     <th style="text-align: right;">Net P&L</th>
                   </tr>
                 </thead>
@@ -506,7 +519,10 @@
                   <button class="pill-btn" data-range="3m">3 Months</button>
                   <button class="pill-btn" data-range="12m">12 Months</button>
                 </div>
-                <div style="font-size: 1.25rem; font-weight: 800; font-family: var(--font-mono);" id="full-heatmap-pnl">₹0.00</div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span id="full-heatmap-volume" style="font-size: 0.85rem; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.28); padding: 5px 10px; border-radius: 8px; font-family: var(--font-mono); font-weight: 700;">Vol: ₹0.00</span>
+                  <div style="font-size: 1.25rem; font-weight: 800; font-family: var(--font-mono);" id="full-heatmap-pnl">₹0.00</div>
+                </div>
               </div>
             </div>
 
@@ -547,8 +563,8 @@
               <p style="font-size: 0.85rem; color: var(--text-muted);">Complete record of all imported Quotex trades</p>
             </div>
             <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" onclick="exportSampleCSV()">
-                📥 Download CSV
+              <button class="btn btn-secondary btn-sm" onclick="exportAllTrades()" title="Download complete trading history as CSV">
+                📥 Export Trade History
               </button>
               <button class="btn btn-danger btn-sm" onclick="confirmClearTrades()">
                 🗑️ Clear All Trades
@@ -696,6 +712,12 @@
               </button>
               <button class="btn btn-secondary" onclick="exportSampleCSV()">
                 📥 Download CSV Template
+              </button>
+              <button class="btn btn-secondary" onclick="backupDatabase()" title="Download the full SQLite database backup">
+                💾 Backup Database (.db)
+              </button>
+              <button class="btn btn-danger" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5;" onclick="confirmClearSampleTrades()" title="Deletes only the fake sample trades, keeps your real Quotex trades">
+                🧹 Remove Demo Trades Only
               </button>
               <button class="btn btn-danger" onclick="confirmClearTrades()">
                 🗑️ Clear All Trades

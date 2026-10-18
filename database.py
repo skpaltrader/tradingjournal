@@ -1,5 +1,7 @@
 import sqlite3
 import os
+import urllib.request
+import json
 from datetime import datetime, timedelta
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'quotex_trades.db')
@@ -8,6 +10,83 @@ def get_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def fetch_live_usd_inr_rate():
+    """Fetches the latest live USD to INR exchange rate from open API."""
+    try:
+        req = urllib.request.Request("https://open.er-api.com/v6/latest/USD", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return round(float(data['rates']['INR']), 4)
+    except Exception:
+        return 95.0757
+
+def ensure_all_exchange_rates():
+    """
+    Checks all trade dates in trades table and ensures a USD/INR exchange rate is cached
+    for every date. Automatically fetches missing historical or future rates.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT substr(date_time, 1, 10) as dt FROM trades ORDER BY dt ASC")
+        trade_dates = [r['dt'] for r in cursor.fetchall()]
+        if not trade_dates:
+            conn.close()
+            return
+            
+        cursor.execute("SELECT date FROM exchange_rates")
+        cached = set(r['date'] for r in cursor.fetchall())
+        conn.close()
+
+        missing = [d for d in trade_dates if d not in cached]
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        if today_str not in cached:
+            missing.append(today_str)
+
+        if not missing:
+            return
+
+        start_d = min(missing)
+        end_d = max(missing)
+        rates_map = {}
+        try:
+            url = f"https://api.frankfurter.dev/v1/{start_d}..{end_d}?from=USD&to=INR"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                for d, r in data.get('rates', {}).items():
+                    rates_map[d] = round(float(r['INR']), 4)
+        except Exception as e:
+            print(f"Forex fetch notice: {e}")
+
+        live_rate = fetch_live_usd_inr_rate()
+        conn = get_connection()
+        cursor = conn.cursor()
+        known_dates = sorted(rates_map.keys())
+        
+        for d in missing:
+            if d in rates_map:
+                r = rates_map[d]
+            else:
+                preceding = [kd for kd in known_dates if kd <= d]
+                r = rates_map[preceding[-1]] if preceding else live_rate
+            cursor.execute("INSERT OR REPLACE INTO exchange_rates (date, usd_inr_rate) VALUES (?, ?)", (d, r))
+            
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Warning in ensure_all_exchange_rates: {e}")
+
+def get_all_exchange_rates():
+    """Returns a dictionary of all cached exchange rates and latest rate."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT date, usd_inr_rate FROM exchange_rates ORDER BY date ASC")
+    rates = {r['date']: r['usd_inr_rate'] for r in cursor.fetchall()}
+    conn.close()
+    latest = rates.get(datetime.now().strftime('%Y-%m-%d'), 95.0757)
+    return rates, latest
 
 def init_db():
     conn = get_connection()
@@ -45,6 +124,15 @@ def init_db():
         )
     ''')
     
+    # Exchange rates cache table for seamless USD/INR conversions
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS exchange_rates (
+            date TEXT PRIMARY KEY,
+            usd_inr_rate REAL NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     # Clean up any leftover demo/sample trades
     cursor.execute("DELETE FROM trades WHERE trade_id LIKE 'QX-1000%'")
     conn.commit()
@@ -69,6 +157,9 @@ def init_db():
                     print(f"Auto-restored {len(trades)} trades from quotex_history.csv on startup.")
             except Exception as e:
                 print(f"Warning: could not auto-load quotex_history.csv: {e}")
+
+    # Ensure exchange rates are cached
+    ensure_all_exchange_rates()
 
 
 def insert_trades_bulk(trades_list):
@@ -105,6 +196,8 @@ def insert_trades_bulk(trades_list):
             continue
     conn.commit()
     conn.close()
+    if inserted_count > 0:
+        ensure_all_exchange_rates()
     return inserted_count
 
 def add_single_trade(trade_data):
@@ -184,7 +277,7 @@ def get_timeframe_filter(timeframe):
         return "WHERE date_time >= ?", [start]
     return "", []
 
-def get_stats(timeframe='all', start_date=None, end_date=None):
+def get_stats(timeframe='all', start_date=None, end_date=None, currency='INR'):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -192,26 +285,49 @@ def get_stats(timeframe='all', start_date=None, end_date=None):
     params = []
     
     if start_date and end_date:
-        where_clause = "WHERE date_time >= ? AND date_time <= ?"
+        where_clause = "WHERE t.date_time >= ? AND t.date_time <= ?"
         params = [f"{start_date} 00:00:00", f"{end_date} 23:59:59"]
     elif timeframe != 'all':
-        where_clause, params = get_timeframe_filter(timeframe)
+        wc, params = get_timeframe_filter(timeframe)
+        where_clause = wc.replace('date_time', 't.date_time')
         
-    query = f'''
-        SELECT 
-            COUNT(*) as total_trades,
-            SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-            SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-            SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
-            COALESCE(SUM(profit), 0) as total_pnl,
-            COALESCE(SUM(investment), 0) as total_volume,
-            COALESCE(SUM(CASE WHEN result = 'WIN' THEN profit ELSE 0 END), 0) as gross_profit,
-            COALESCE(SUM(CASE WHEN result = 'LOSS' THEN ABS(profit) ELSE 0 END), 0) as gross_loss,
-            COALESCE(MAX(profit), 0) as best_trade,
-            COALESCE(MIN(profit), 0) as worst_trade
-        FROM trades
-        {where_clause}
-    '''
+    is_usd = (currency and currency.upper() == 'USD')
+    
+    if is_usd:
+        query = f'''
+            SELECT 
+                COUNT(*) as total_trades,
+                COUNT(DISTINCT substr(t.date_time, 1, 10)) as trading_days,
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
+                COALESCE(SUM(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 0) as total_pnl,
+                COALESCE(SUM(t.investment / COALESCE(er.usd_inr_rate, 95.0757)), 0) as total_volume,
+                COALESCE(SUM(CASE WHEN t.result = 'WIN' THEN (t.profit / COALESCE(er.usd_inr_rate, 95.0757)) ELSE 0 END), 0) as gross_profit,
+                COALESCE(SUM(CASE WHEN t.result = 'LOSS' THEN ABS(t.profit / COALESCE(er.usd_inr_rate, 95.0757)) ELSE 0 END), 0) as gross_loss,
+                COALESCE(MAX(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 0) as best_trade,
+                COALESCE(MIN(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 0) as worst_trade
+            FROM trades t
+            LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)
+            {where_clause}
+        '''
+    else:
+        query = f'''
+            SELECT 
+                COUNT(*) as total_trades,
+                COUNT(DISTINCT substr(t.date_time, 1, 10)) as trading_days,
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
+                COALESCE(SUM(t.profit), 0) as total_pnl,
+                COALESCE(SUM(t.investment), 0) as total_volume,
+                COALESCE(SUM(CASE WHEN t.result = 'WIN' THEN t.profit ELSE 0 END), 0) as gross_profit,
+                COALESCE(SUM(CASE WHEN t.result = 'LOSS' THEN ABS(t.profit) ELSE 0 END), 0) as gross_loss,
+                COALESCE(MAX(t.profit), 0) as best_trade,
+                COALESCE(MIN(t.profit), 0) as worst_trade
+            FROM trades t
+            {where_clause}
+        '''
     cursor.execute(query, params)
     row = cursor.fetchone()
     conn.close()
@@ -219,6 +335,7 @@ def get_stats(timeframe='all', start_date=None, end_date=None):
     if not row or row['total_trades'] == 0:
         return {
             'total_trades': 0,
+            'trading_days': 0,
             'wins': 0,
             'losses': 0,
             'refunds': 0,
@@ -230,14 +347,19 @@ def get_stats(timeframe='all', start_date=None, end_date=None):
             'best_trade': 0.0,
             'worst_trade': 0.0,
             'total_pnl': 0.0,
-            'total_volume': 0.0
+            'total_volume': 0.0,
+            'avg_daily_volume': 0.0,
+            'currency': 'USD' if is_usd else 'INR'
         }
         
     total_trades = row['total_trades']
+    trading_days = row['trading_days'] or 1
     wins = row['wins'] or 0
     losses = row['losses'] or 0
     refunds = row['refunds'] or 0
     total_pnl = round(row['total_pnl'] or 0.0, 2)
+    total_volume = round(row['total_volume'] or 0.0, 2)
+    avg_daily_volume = round(total_volume / trading_days, 2) if trading_days > 0 else 0.0
     gross_profit = row['gross_profit'] or 0.0
     gross_loss = row['gross_loss'] or 0.0
     
@@ -259,6 +381,7 @@ def get_stats(timeframe='all', start_date=None, end_date=None):
     
     return {
         'total_trades': total_trades,
+        'trading_days': trading_days,
         'wins': wins,
         'losses': losses,
         'refunds': refunds,
@@ -270,10 +393,12 @@ def get_stats(timeframe='all', start_date=None, end_date=None):
         'best_trade': round(row['best_trade'] or 0.0, 2),
         'worst_trade': round(row['worst_trade'] or 0.0, 2),
         'total_pnl': total_pnl,
-        'total_volume': round(row['total_volume'] or 0.0, 2)
+        'total_volume': total_volume,
+        'avg_daily_volume': avg_daily_volume,
+        'currency': 'USD' if is_usd else 'INR'
     }
 
-def get_equity_curve(timeframe='all', start_date=None, end_date=None):
+def get_equity_curve(timeframe='all', start_date=None, end_date=None, currency='INR'):
     """
     Returns time series of cumulative P&L.
     """
@@ -283,17 +408,28 @@ def get_equity_curve(timeframe='all', start_date=None, end_date=None):
     where_clause = ""
     params = []
     if start_date and end_date:
-        where_clause = "WHERE date_time >= ? AND date_time <= ?"
+        where_clause = "WHERE t.date_time >= ? AND t.date_time <= ?"
         params = [f"{start_date} 00:00:00", f"{end_date} 23:59:59"]
     elif timeframe != 'all':
-        where_clause, params = get_timeframe_filter(timeframe)
+        wc, params = get_timeframe_filter(timeframe)
+        where_clause = wc.replace('date_time', 't.date_time')
         
-    query = f'''
-        SELECT date_time, profit, result, asset
-        FROM trades
-        {where_clause}
-        ORDER BY date_time ASC
-    '''
+    is_usd = (currency and currency.upper() == 'USD')
+    if is_usd:
+        query = f'''
+            SELECT t.date_time, ROUND(t.profit / COALESCE(er.usd_inr_rate, 95.0), 2) as profit, t.result, t.asset
+            FROM trades t
+            LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)
+            {where_clause}
+            ORDER BY t.date_time ASC
+        '''
+    else:
+        query = f'''
+            SELECT t.date_time, t.profit, t.result, t.asset
+            FROM trades t
+            {where_clause}
+            ORDER BY t.date_time ASC
+        '''
     cursor.execute(query, params)
     rows = cursor.fetchall()
     conn.close()
@@ -311,7 +447,7 @@ def get_equity_curve(timeframe='all', start_date=None, end_date=None):
         })
     return curve
 
-def get_daily_pnl_chart(timeframe='all', start_date=None, end_date=None):
+def get_daily_pnl_chart(timeframe='all', start_date=None, end_date=None, currency='INR'):
     """
     Returns daily aggregated net P&L with dates for bar charts.
     """
@@ -321,24 +457,44 @@ def get_daily_pnl_chart(timeframe='all', start_date=None, end_date=None):
     where_clause = ""
     params = []
     if start_date and end_date:
-        where_clause = "WHERE date_time >= ? AND date_time <= ?"
+        where_clause = "WHERE t.date_time >= ? AND t.date_time <= ?"
         params = [f"{start_date} 00:00:00", f"{end_date} 23:59:59"]
     elif timeframe != 'all':
-        where_clause, params = get_timeframe_filter(timeframe)
+        wc, params = get_timeframe_filter(timeframe)
+        where_clause = wc.replace('date_time', 't.date_time')
         
-    query = f'''
-        SELECT 
-            substr(date_time, 1, 10) as day,
-            ROUND(SUM(profit), 2) as daily_pnl,
-            COUNT(*) as trades_count,
-            SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-            SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-            SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds
-        FROM trades
-        {where_clause}
-        GROUP BY day
-        ORDER BY day ASC
-    '''
+    is_usd = (currency and currency.upper() == 'USD')
+    if is_usd:
+        query = f'''
+            SELECT 
+                substr(t.date_time, 1, 10) as day,
+                ROUND(SUM(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 2) as daily_pnl,
+                ROUND(SUM(t.investment / COALESCE(er.usd_inr_rate, 95.0757)), 2) as daily_volume,
+                COUNT(*) as trades_count,
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds
+            FROM trades t
+            LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)
+            {where_clause}
+            GROUP BY day
+            ORDER BY day ASC
+        '''
+    else:
+        query = f'''
+            SELECT 
+                substr(t.date_time, 1, 10) as day,
+                ROUND(SUM(t.profit), 2) as daily_pnl,
+                ROUND(SUM(t.investment), 2) as daily_volume,
+                COUNT(*) as trades_count,
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds
+            FROM trades t
+            {where_clause}
+            GROUP BY day
+            ORDER BY day ASC
+        '''
     cursor.execute(query, params)
     rows = cursor.fetchall()
     conn.close()
@@ -347,6 +503,7 @@ def get_daily_pnl_chart(timeframe='all', start_date=None, end_date=None):
         {
             'date': r['day'],
             'pnl': r['daily_pnl'],
+            'volume': r['daily_volume'],
             'trades_count': r['trades_count'],
             'wins': r['wins'],
             'losses': r['losses'],
@@ -355,7 +512,7 @@ def get_daily_pnl_chart(timeframe='all', start_date=None, end_date=None):
         for r in rows
     ]
 
-def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end_date=None, range_type=None):
+def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end_date=None, range_type=None, currency='INR'):
     """
     Returns daily P&L dictionary for LegendJournal heatmap tabs:
     - this_month: current active month
@@ -434,37 +591,59 @@ def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end
         
     months_data = []
     overall_pnl = 0.0
+    overall_volume = 0.0
     overall_trades = 0
     overall_wins = 0
     overall_losses = 0
     overall_refunds = 0
+    
+    is_usd = (currency and currency.upper() == 'USD')
     
     for ym in target_months:
         where_extra = ""
         params = [ym]
         
         if tab == 'custom' and start_date and end_date:
-            where_extra = " AND date_time >= ? AND date_time <= ?"
+            where_extra = " AND t.date_time >= ? AND t.date_time <= ?"
             params.extend([f"{start_date} 00:00:00", f"{end_date} 23:59:59"])
             
-        cursor.execute(f'''
-            SELECT 
-                substr(date_time, 1, 10) as day,
-                ROUND(SUM(profit), 2) as pnl,
-                COUNT(*) as trades_count,
-                SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-                SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-                SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds
-            FROM trades
-            WHERE substr(date_time, 1, 7) = ? {where_extra}
-            GROUP BY day
-            ORDER BY day ASC
-        ''', params)
+        if is_usd:
+            cursor.execute(f'''
+                SELECT 
+                    substr(t.date_time, 1, 10) as day,
+                    ROUND(SUM(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 2) as pnl,
+                    ROUND(SUM(t.investment / COALESCE(er.usd_inr_rate, 95.0757)), 2) as volume,
+                    COUNT(*) as trades_count,
+                    SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                    SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds
+                FROM trades t
+                LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)
+                WHERE substr(t.date_time, 1, 7) = ? {where_extra}
+                GROUP BY day
+                ORDER BY day ASC
+            ''', params)
+        else:
+            cursor.execute(f'''
+                SELECT 
+                    substr(t.date_time, 1, 10) as day,
+                    ROUND(SUM(t.profit), 2) as pnl,
+                    ROUND(SUM(t.investment), 2) as volume,
+                    COUNT(*) as trades_count,
+                    SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                    SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds
+                FROM trades t
+                WHERE substr(t.date_time, 1, 7) = ? {where_extra}
+                GROUP BY day
+                ORDER BY day ASC
+            ''', params)
         rows = cursor.fetchall()
         
         days_dict = {
             r['day']: {
                 'pnl': r['pnl'],
+                'volume': r['volume'] or 0.0,
                 'trades_count': r['trades_count'],
                 'wins': r['wins'],
                 'losses': r['losses'],
@@ -473,25 +652,42 @@ def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end
             for r in rows
         }
         
-        cursor.execute(f'''
-            SELECT 
-                ROUND(SUM(profit), 2) as m_pnl,
-                COUNT(*) as m_trades,
-                SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as m_wins,
-                SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as m_losses,
-                SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as m_refunds
-            FROM trades
-            WHERE substr(date_time, 1, 7) = ? {where_extra}
-        ''', params)
+        if is_usd:
+            cursor.execute(f'''
+                SELECT 
+                    ROUND(SUM(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 2) as m_pnl,
+                    ROUND(SUM(t.investment / COALESCE(er.usd_inr_rate, 95.0757)), 2) as m_volume,
+                    COUNT(*) as m_trades,
+                    SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as m_wins,
+                    SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as m_losses,
+                    SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as m_refunds
+                FROM trades t
+                LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)
+                WHERE substr(t.date_time, 1, 7) = ? {where_extra}
+            ''', params)
+        else:
+            cursor.execute(f'''
+                SELECT 
+                    ROUND(SUM(t.profit), 2) as m_pnl,
+                    ROUND(SUM(t.investment), 2) as m_volume,
+                    COUNT(*) as m_trades,
+                    SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as m_wins,
+                    SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as m_losses,
+                    SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as m_refunds
+                FROM trades t
+                WHERE substr(t.date_time, 1, 7) = ? {where_extra}
+            ''', params)
         summary_row = cursor.fetchone()
         
         m_pnl = summary_row['m_pnl'] if summary_row and summary_row['m_pnl'] is not None else 0.0
+        m_volume = summary_row['m_volume'] if summary_row and summary_row['m_volume'] is not None else 0.0
         m_trades = summary_row['m_trades'] if summary_row and summary_row['m_trades'] is not None else 0
         m_wins = summary_row['m_wins'] if summary_row and summary_row['m_wins'] is not None else 0
         m_losses = summary_row['m_losses'] if summary_row and summary_row['m_losses'] is not None else 0
         m_refunds = summary_row['m_refunds'] if summary_row and summary_row['m_refunds'] is not None else 0
         
         overall_pnl = round(overall_pnl + m_pnl, 2)
+        overall_volume = round(overall_volume + m_volume, 2)
         overall_trades += m_trades
         overall_wins += m_wins
         overall_losses += m_losses
@@ -506,6 +702,7 @@ def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end
             'year_month': ym,
             'month_name': month_name,
             'month_pnl': m_pnl,
+            'month_volume': round(m_volume, 2),
             'trades_count': m_trades,
             'wins': m_wins,
             'losses': m_losses,
@@ -518,6 +715,7 @@ def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end
     primary_month_data = months_data[-1] if months_data else {
         'year_month': base_ym,
         'month_pnl': 0.0,
+        'month_volume': 0.0,
         'days': {}
     }
     
@@ -527,6 +725,7 @@ def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end
         'year_month': base_ym,
         'month_pnl': overall_pnl,
         'overall_pnl': overall_pnl,
+        'overall_volume': overall_volume,
         'overall_trades': overall_trades,
         'overall_wins': overall_wins,
         'overall_losses': overall_losses,
@@ -536,7 +735,7 @@ def get_calendar_heatmap(year_month=None, tab='this_month', start_date=None, end
         'available_months': available_months
     }
 
-def get_breakdown(period_type='daily'):
+def get_breakdown(period_type='daily', currency='INR'):
     """
     Returns breakdown list for period_type:
     'daily', 'weekly', 'monthly', '3month', '1year'
@@ -544,17 +743,28 @@ def get_breakdown(period_type='daily'):
     conn = get_connection()
     cursor = conn.cursor()
     
+    is_usd = (currency and currency.upper() == 'USD')
+    if is_usd:
+        vol_col = "ROUND(SUM(t.investment / COALESCE(er.usd_inr_rate, 95.0757)), 2)"
+        pnl_col = "ROUND(SUM(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 2)"
+        join_clause = "LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)"
+    else:
+        vol_col = "ROUND(SUM(t.investment), 2)"
+        pnl_col = "ROUND(SUM(t.profit), 2)"
+        join_clause = ""
+        
     if period_type == 'daily':
-        query = '''
+        query = f'''
             SELECT 
-                substr(date_time, 1, 10) as period_label,
+                substr(t.date_time, 1, 10) as period_label,
                 COUNT(*) as total_trades,
-                SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-                SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-                SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
-                ROUND(SUM(investment), 2) as total_volume,
-                ROUND(SUM(profit), 2) as net_pnl
-            FROM trades
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
+                {vol_col} as total_volume,
+                {pnl_col} as net_pnl
+            FROM trades t
+            {join_clause}
             GROUP BY period_label
             ORDER BY period_label DESC
         '''
@@ -563,18 +773,19 @@ def get_breakdown(period_type='daily'):
         
     elif period_type == 'weekly':
         # Group by year and week
-        query = '''
+        query = f'''
             SELECT 
-                strftime('%Y-W%W', date_time) as period_key,
-                MIN(substr(date_time, 1, 10)) as week_start,
-                MAX(substr(date_time, 1, 10)) as week_end,
+                strftime('%Y-W%W', t.date_time) as period_key,
+                MIN(substr(t.date_time, 1, 10)) as week_start,
+                MAX(substr(t.date_time, 1, 10)) as week_end,
                 COUNT(*) as total_trades,
-                SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-                SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-                SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
-                ROUND(SUM(investment), 2) as total_volume,
-                ROUND(SUM(profit), 2) as net_pnl
-            FROM trades
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
+                {vol_col} as total_volume,
+                {pnl_col} as net_pnl
+            FROM trades t
+            {join_clause}
             GROUP BY period_key
             ORDER BY period_key DESC
         '''
@@ -594,36 +805,38 @@ def get_breakdown(period_type='daily'):
             })
             
     elif period_type == 'monthly':
-        query = '''
+        query = f'''
             SELECT 
-                substr(date_time, 1, 7) as period_label,
+                substr(t.date_time, 1, 7) as period_label,
                 COUNT(*) as total_trades,
-                SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-                SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-                SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
-                ROUND(SUM(investment), 2) as total_volume,
-                ROUND(SUM(profit), 2) as net_pnl
-            FROM trades
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
+                {vol_col} as total_volume,
+                {pnl_col} as net_pnl
+            FROM trades t
+            {join_clause}
             GROUP BY period_label
             ORDER BY period_label DESC
         '''
         cursor.execute(query)
         rows = cursor.fetchall()
-
+        
     elif period_type == '3month':
         # Group into quarters: Q1 (01-03), Q2 (04-06), Q3 (07-09), Q4 (10-12)
-        query = '''
+        query = f'''
             SELECT 
-                substr(date_time, 1, 4) || ' - Q' || (((CAST(substr(date_time, 6, 2) AS INTEGER) - 1) / 3) + 1) as period_label,
-                MIN(substr(date_time, 1, 7)) as start_month,
-                MAX(substr(date_time, 1, 7)) as end_month,
+                substr(t.date_time, 1, 4) || ' - Q' || (((CAST(substr(t.date_time, 6, 2) AS INTEGER) - 1) / 3) + 1) as period_label,
+                MIN(substr(t.date_time, 1, 7)) as start_month,
+                MAX(substr(t.date_time, 1, 7)) as end_month,
                 COUNT(*) as total_trades,
-                SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-                SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-                SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
-                ROUND(SUM(investment), 2) as total_volume,
-                ROUND(SUM(profit), 2) as net_pnl
-            FROM trades
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
+                {vol_col} as total_volume,
+                {pnl_col} as net_pnl
+            FROM trades t
+            {join_clause}
             GROUP BY period_label
             ORDER BY period_label DESC
         '''
@@ -643,16 +856,17 @@ def get_breakdown(period_type='daily'):
             })
 
     elif period_type == '1year':
-        query = '''
+        query = f'''
             SELECT 
-                substr(date_time, 1, 4) as period_label,
+                substr(t.date_time, 1, 4) as period_label,
                 COUNT(*) as total_trades,
-                SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-                SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-                SUM(CASE WHEN result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
-                ROUND(SUM(investment), 2) as total_volume,
-                ROUND(SUM(profit), 2) as net_pnl
-            FROM trades
+                SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END) as refunds,
+                {vol_col} as total_volume,
+                {pnl_col} as net_pnl
+            FROM trades t
+            {join_clause}
             GROUP BY period_label
             ORDER BY period_label DESC
         '''
@@ -683,11 +897,12 @@ def get_breakdown(period_type='daily'):
             'net_pnl': net_pnl,
             'is_positive': net_pnl > 0,
             'is_negative': net_pnl < 0,
-            'is_neutral': net_pnl == 0
+            'is_neutral': net_pnl == 0,
+            'currency': 'USD' if is_usd else 'INR'
         })
     return result_list
 
-def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search=None):
+def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search=None, currency='INR'):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -695,35 +910,53 @@ def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search
     params = []
     
     if result_filter and result_filter.upper() in ['WIN', 'LOSS', 'REFUND']:
-        where_clauses.append("result = ?")
+        where_clauses.append("t.result = ?")
         params.append(result_filter.upper())
         
     if asset_filter and asset_filter.strip():
-        where_clauses.append("asset = ?")
+        where_clauses.append("t.asset = ?")
         params.append(asset_filter.strip())
         
     if search and search.strip():
-        where_clauses.append("(asset LIKE ? OR trade_id LIKE ?)")
+        where_clauses.append("(t.asset LIKE ? OR t.trade_id LIKE ?)")
         s = f"%{search.strip()}%"
         params.extend([s, s])
         
     where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     
     # Get total count
-    count_query = f"SELECT COUNT(*) as total FROM trades {where_str}"
+    count_query = f"SELECT COUNT(*) as total FROM trades t {where_str}"
     cursor.execute(count_query, params)
     total_count = cursor.fetchone()['total']
     
-    # Get rows
+    is_usd = (currency and currency.upper() == 'USD')
+    
+    # Get rows with exchange rate joined
     data_query = f'''
-        SELECT id, trade_id, date_time, asset, direction, investment, payout_rate, profit, result, open_price, close_price
-        FROM trades
+        SELECT 
+            t.id, t.trade_id, t.date_time, t.asset, t.direction, t.investment, t.payout_rate, t.profit, t.result, t.open_price, t.close_price,
+            COALESCE(er.usd_inr_rate, 95.0757) as rate
+        FROM trades t
+        LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)
         {where_str}
-        ORDER BY date_time DESC, id DESC
+        ORDER BY t.date_time DESC, t.id DESC
         LIMIT ? OFFSET ?
     '''
     cursor.execute(data_query, params + [limit, offset])
     rows = cursor.fetchall()
+    
+    trades_out = []
+    for r in rows:
+        d = dict(r)
+        d['invest_inr'] = d['investment']
+        d['profit_inr'] = d['profit']
+        rate = d['rate']
+        d['invest_usd'] = round(d['investment'] / rate, 2)
+        d['profit_usd'] = round(d['profit'] / rate, 2)
+        if is_usd:
+            d['investment'] = d['invest_usd']
+            d['profit'] = d['profit_usd']
+        trades_out.append(d)
     
     # Distinct assets for dropdown filter
     cursor.execute("SELECT DISTINCT asset FROM trades ORDER BY asset ASC")
@@ -736,7 +969,8 @@ def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search
         'limit': limit,
         'offset': offset,
         'assets': assets,
-        'trades': [dict(r) for r in rows]
+        'trades': trades_out,
+        'currency': 'USD' if is_usd else 'INR'
     }
 
 def get_trade_by_id(trade_id):

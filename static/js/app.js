@@ -1,6 +1,9 @@
 // Quotex Trading Journal & P&L Tracker Frontend Logic
 
 let currentCurrency = localStorage.getItem('quotex_currency') || '₹';
+function getActiveCurrencyCode() {
+  return currentCurrency === '$' ? 'USD' : 'INR';
+}
 let equityChart = null;
 let donutChart = null;
 let dailyBarChart = null;
@@ -22,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Load initial data
   loadDashboardData();
+  fetchLatestRateInfo();
 });
 
 // Currency formatting & Switching
@@ -50,8 +54,25 @@ function setCurrency(curr) {
 function updateCurrencyToggleButtons() {
   const btnInr = document.getElementById('btn-curr-inr');
   const btnUsd = document.getElementById('btn-curr-usd');
+  const ratePill = document.getElementById('usd-rate-pill');
   if (btnInr) btnInr.classList.toggle('active', currentCurrency === '₹');
   if (btnUsd) btnUsd.classList.toggle('active', currentCurrency === '$');
+  if (ratePill) {
+    ratePill.style.display = currentCurrency === '$' ? 'inline-flex' : 'none';
+  }
+}
+
+// Fetch live USD/INR exchange rate on load
+async function fetchLatestRateInfo() {
+  try {
+    const res = await fetch('/api/exchange-rates').then(r => r.json());
+    if (res.success && res.latest) {
+      const valEl = document.getElementById('live-usd-rate-val');
+      if (valEl) valEl.textContent = Number(res.latest).toFixed(2);
+    }
+  } catch (e) {
+    // silently ignore
+  }
 }
 
 function formatAmount(val, showSign = true) {
@@ -172,9 +193,10 @@ function refreshCurrentView() {
 // -------------------------------------------------------------------------
 async function loadDashboardData() {
   try {
+    const curr = getActiveCurrencyCode();
     const [statsRes, recentTradesRes] = await Promise.all([
-      fetch('/api/stats?timeframe=all').then(r => r.json()),
-      fetch('/api/trades?limit=8&offset=0').then(r => r.json())
+      fetch(`/api/stats?timeframe=all&currency=${curr}`).then(r => r.json()),
+      fetch(`/api/trades?limit=8&offset=0&currency=${curr}`).then(r => r.json())
     ]);
 
     if (statsRes.success) {
@@ -224,6 +246,21 @@ function updateDashboardKPIs(stats) {
   if (totalTradesEl) {
     totalTradesEl.textContent = stats.total_trades.toLocaleString();
   }
+  const tradesSub = document.getElementById('kpi-trades-sub');
+  if (tradesSub) {
+    tradesSub.textContent = `${stats.trading_days || 1} trading days`;
+  }
+
+  // 5th KPI Card: Traded Volume
+  const volEl = document.getElementById('kpi-total-volume');
+  const volSub = document.getElementById('kpi-volume-sub');
+  if (volEl) {
+    volEl.textContent = formatAmount(stats.total_volume || 0, false);
+  }
+  if (volSub) {
+    const avgVol = stats.avg_daily_volume || 0;
+    volSub.textContent = `Avg ${formatAmount(avgVol, false)} / day`;
+  }
 }
 
 function initEquityPills() {
@@ -239,7 +276,8 @@ function initEquityPills() {
 
 async function loadEquityCurve(timeframe) {
   try {
-    const res = await fetch(`/api/equity-curve?timeframe=${timeframe}`).then(r => r.json());
+    const curr = getActiveCurrencyCode();
+    const res = await fetch(`/api/equity-curve?timeframe=${timeframe}&currency=${curr}`).then(r => r.json());
     if (!res.success) return;
 
     const data = res.data;
@@ -524,7 +562,8 @@ function changeHeatmapPeriod(direction) {
 async function loadDashboardHeatmap(month) {
   try {
     const targetMonth = month || currentHeatmapMonth || '';
-    const url = `/api/heatmap?month=${targetMonth}&range=${currentHeatmapRange}`;
+    const curr = getActiveCurrencyCode();
+    const url = `/api/heatmap?month=${targetMonth}&range=${currentHeatmapRange}&currency=${curr}`;
     const res = await fetch(url).then(r => r.json());
     if (!res.success) return;
 
@@ -560,7 +599,8 @@ async function loadDashboardHeatmap(month) {
 async function loadFullHeatmap(month) {
   try {
     const targetMonth = month || currentHeatmapMonth || '';
-    const url = `/api/heatmap?month=${targetMonth}&range=${currentHeatmapRange}`;
+    const curr = getActiveCurrencyCode();
+    const url = `/api/heatmap?month=${targetMonth}&range=${currentHeatmapRange}&currency=${curr}`;
     const res = await fetch(url).then(r => r.json());
     if (!res.success) return;
 
@@ -584,6 +624,10 @@ async function loadFullHeatmap(month) {
     if (totalEl) {
       totalEl.textContent = formatAmount(data.overall_pnl);
       totalEl.className = data.overall_pnl > 0 ? 'text-win' : data.overall_pnl < 0 ? 'text-loss' : '';
+    }
+    const volEl = document.getElementById('full-heatmap-volume');
+    if (volEl) {
+      volEl.textContent = `Total Vol: ${formatAmount(data.overall_volume || 0, false)}`;
     }
 
     renderHeatmapContent('full-calendar-months-view', data, true);
@@ -611,7 +655,7 @@ function renderHeatmapContent(containerId, heatmapData, isFull = false) {
       <div class="calendar-grid" id="${containerId}-single-grid"></div>
     `;
     container.appendChild(wrapper);
-    buildCalendarDaysGrid(`${containerId}-single-grid`, y, m, monthObj.days);
+    buildCalendarDaysGrid(`${containerId}-single-grid`, y, m, monthObj.days, false, isFull);
   } else {
     // 3 Months or 12 Months Multi-Month Grid
     const gridClass = heatmapData.range_type === '3m' ? 'multi-months-grid grid-3m' : 'multi-months-grid grid-12m';
@@ -625,11 +669,12 @@ function renderHeatmapContent(containerId, heatmapData, isFull = false) {
 
       const pnlClass = mObj.month_pnl > 0 ? 'text-win' : mObj.month_pnl < 0 ? 'text-loss' : '';
       const gridId = `${containerId}-grid-${idx}`;
+      const volTag = (isFull && mObj.month_volume) ? ` • Vol: ${formatAmount(mObj.month_volume, false)}` : '';
 
       cardEl.innerHTML = `
         <div class="month-block-header">
           <span class="month-block-title">${mObj.month_name}</span>
-          <span class="month-block-badge ${pnlClass}">${formatAmount(mObj.month_pnl)}</span>
+          <span class="month-block-badge ${pnlClass}">${formatAmount(mObj.month_pnl)}${volTag}</span>
         </div>
         <div class="calendar-weekdays">
           <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
@@ -640,7 +685,7 @@ function renderHeatmapContent(containerId, heatmapData, isFull = false) {
       
       // Delay slightly for DOM insertion
       setTimeout(() => {
-        buildCalendarDaysGrid(gridId, y, m, mObj.days, true);
+        buildCalendarDaysGrid(gridId, y, m, mObj.days, true, isFull);
       }, 0);
     });
 
@@ -648,7 +693,7 @@ function renderHeatmapContent(containerId, heatmapData, isFull = false) {
   }
 }
 
-function buildCalendarDaysGrid(containerId, year, month, daysData, isCompact = false) {
+function buildCalendarDaysGrid(containerId, year, month, daysData, isCompact = false, isFull = false) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = '';
@@ -676,16 +721,36 @@ function buildCalendarDaysGrid(containerId, year, month, daysData, isCompact = f
 
     if (dayInfo) {
       const pnl = dayInfo.pnl;
-      if (pnl > 0) dayEl.classList.add('day-win');
-      else if (pnl < 0) dayEl.classList.add('day-loss');
+      const isWin = pnl > 0;
+      const isLoss = pnl < 0;
+      const isBreakeven = pnl === 0;
+
+      if (isWin) dayEl.classList.add('day-win');
+      else if (isLoss) dayEl.classList.add('day-loss');
       else dayEl.classList.add('day-refund');
 
-      const pnlColorClass = pnl > 0 ? 'text-win' : pnl < 0 ? 'text-loss' : 'text-refund';
+      const pnlColorClass = isWin ? 'text-win' : isLoss ? 'text-loss' : 'text-refund';
+      const pnlFormatted = isBreakeven ? '0.00' : formatAmount(pnl, true);
+
+      // On dashboard (isFull = false): DO NOT show volume inside cell so it never gets choppy!
+      // In full heatmap tab (isFull = true): show volume if available
+      const volStr = (isFull && dayInfo.volume) ? `<div class="day-vol text-muted" style="font-size: 0.63rem; font-family: var(--font-mono); opacity: 0.85; margin-top: 2px;">Vol: ${formatAmount(dayInfo.volume, false)}</div>` : '';
+
       dayEl.innerHTML = `
         <div class="day-number">${d}</div>
-        <div class="day-pnl ${pnlColorClass}">${formatAmount(pnl, true)}</div>
+        <div class="day-pnl ${pnlColorClass}">${pnlFormatted}</div>
+        ${volStr}
       `;
-      dayEl.title = `${dayStr}\nP&L: ${formatAmount(pnl)}\nTrades: ${dayInfo.trades_count} (${dayInfo.wins}W / ${dayInfo.losses}L / ${dayInfo.refunds}R)`;
+      dayEl.title = `${dayStr}\nP&L: ${formatAmount(pnl)}${isBreakeven ? ' (Breakeven: No Loss No Gain)' : ''}\nTraded Volume: ${dayInfo.volume ? formatAmount(dayInfo.volume, false) : formatAmount(0, false)}\nTrades: ${dayInfo.trades_count} (${dayInfo.wins}W / ${dayInfo.losses}L / ${dayInfo.refunds}R)\nClick to view trades for this day`;
+      dayEl.style.cursor = 'pointer';
+      dayEl.addEventListener('click', () => {
+        switchTab('history');
+        const searchInput = document.getElementById('history-search-input');
+        if (searchInput) {
+          searchInput.value = dayStr;
+          loadTradeHistory(0);
+        }
+      });
     } else {
       dayEl.innerHTML = `<div class="day-number">${d}</div>`;
     }
@@ -710,9 +775,10 @@ function initAnalyticsPills() {
 
 async function loadAnalyticsData(timeframe) {
   try {
+    const curr = getActiveCurrencyCode();
     const [statsRes, barRes] = await Promise.all([
-      fetch(`/api/stats?timeframe=${timeframe}`).then(r => r.json()),
-      fetch(`/api/daily-pnl?timeframe=${timeframe}`).then(r => r.json())
+      fetch(`/api/stats?timeframe=${timeframe}&currency=${curr}`).then(r => r.json()),
+      fetch(`/api/daily-pnl?timeframe=${timeframe}&currency=${curr}`).then(r => r.json())
     ]);
 
     if (statsRes.success) {
@@ -784,6 +850,7 @@ function renderDailyPnlBarChart(dailyData) {
               const d = dailyData[item.dataIndex];
               return [
                 `P&L: ${formatAmount(d.pnl)}`,
+                `Traded Volume: ${formatAmount(d.volume || 0, false)}`,
                 `Trades: ${d.trades_count} (${d.wins}W / ${d.losses}L / ${d.refunds}R)`
               ];
             }
@@ -833,7 +900,8 @@ async function loadBreakdownData(periodType) {
     };
     document.getElementById('breakdown-table-title').innerHTML = `<span>${titles[periodType] || 'P&L Breakdown'}</span>`;
 
-    const res = await fetch(`/api/breakdown?type=${periodType}`).then(r => r.json());
+    const curr = getActiveCurrencyCode();
+    const res = await fetch(`/api/breakdown?type=${periodType}&currency=${curr}`).then(r => r.json());
     const tbody = document.getElementById('breakdown-table-body');
     if (!tbody) return;
 
@@ -844,8 +912,10 @@ async function loadBreakdownData(periodType) {
     }
 
     let netSum = 0;
+    let volSum = 0;
     tbody.innerHTML = res.breakdown.map(item => {
       netSum += item.net_pnl;
+      volSum += (item.total_volume || 0);
       const isPos = item.net_pnl > 0;
       const isNeg = item.net_pnl < 0;
       const pnlClass = isPos ? 'text-win' : isNeg ? 'text-loss' : 'text-refund';
@@ -868,7 +938,7 @@ async function loadBreakdownData(periodType) {
 
     const sumBadge = document.getElementById('breakdown-summary-badge');
     if (sumBadge) {
-      sumBadge.textContent = `Period Total: ${formatAmount(netSum)}`;
+      sumBadge.textContent = `Period Net P&L: ${formatAmount(netSum)}  •  Total Volume: ${formatAmount(volSum, false)}`;
       sumBadge.className = netSum > 0 ? 'text-win' : netSum < 0 ? 'text-loss' : '';
     }
   } catch (err) {
@@ -892,7 +962,8 @@ async function loadTradeHistory(page = 0) {
     offset: offset,
     result: resultFilter,
     asset: assetFilter,
-    search: search
+    search: search,
+    currency: getActiveCurrencyCode()
   });
 
   try {
@@ -1005,6 +1076,19 @@ async function confirmClearTrades() {
   }
 }
 
+async function confirmClearSampleTrades() {
+  if (!confirm('Remove demo/sample trades? This will keep all your uploaded Quotex trades.')) return;
+  try {
+    const res = await fetch('/api/trades/clear-sample', { method: 'POST' }).then(r => r.json());
+    if (res.success) {
+      showToast(res.message || 'Demo trades purged successfully.');
+      refreshCurrentView();
+    }
+  } catch (err) {
+    showToast('Error removing demo trades: ' + err.message, 'error');
+  }
+}
+
 // -------------------------------------------------------------------------
 // CSV UPLOAD & SAMPLE DATA (Image 3)
 // -------------------------------------------------------------------------
@@ -1109,6 +1193,14 @@ async function loadSampleData() {
 
 function exportSampleCSV() {
   window.location.href = '/api/export-sample-csv';
+}
+
+function exportAllTrades() {
+  window.location.href = '/api/export-trades';
+}
+
+function backupDatabase() {
+  window.location.href = '/api/backup-db';
 }
 
 // -------------------------------------------------------------------------
