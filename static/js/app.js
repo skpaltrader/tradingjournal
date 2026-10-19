@@ -127,6 +127,9 @@ function toggleSidebar() {
 }
 
 function switchTab(tabName) {
+  // Always scroll to top when changing tabs so header sits cleanly
+  window.scrollTo({ top: 0, behavior: 'instant' });
+
   // Update sidebar active class
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(el => {
     el.classList.toggle('active', el.getAttribute('data-tab') === tabName);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Quotex Trading Journal & P&L Tracker</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=20261019_02">
   <script src="/static/js/chart.min.js"></script>
 </head>
 <body>
@@ -81,7 +81,7 @@
     <!-- Main Wrapper -->
     <div class="main-wrapper">
       <!-- Top Navigation Bar -->
-      <header class="top-bar">
+      <header class="top-bar" style="background-color: #111524 !important; position: sticky !important; top: 0 !important; z-index: 900 !important; width: 100%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);">
         <div class="top-bar-left">
           <button class="mobile-menu-btn" id="mobile-menu-toggle" onclick="toggleSidebar()" aria-label="Toggle Navigation">
             <span>☰</span>
@@ -102,9 +102,6 @@
             <span style="color: #10b981;">●</span> USD Mode (Live: $1 = ₹<span id="live-usd-rate-val">95.08</span>)
           </span>
 
-          <button class="btn btn-secondary btn-sm" id="btn-open-new-trade">
-            <span>+</span> New Trade
-          </button>
           <button class="btn btn-primary btn-sm" onclick="switchTab('import-csv')">
             <span>📥</span> Files
           </button>
@@ -141,11 +138,8 @@
               </div>
             </div>
             <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" onclick="loadSampleData()">
-                ⚡ Load Sample Trades
-              </button>
               <button class="btn btn-primary btn-sm" onclick="switchTab('import-csv')">
-                Upload Quotex CSV
+                <span>📥</span> Upload Quotex CSV
               </button>
             </div>
           </div>
@@ -266,7 +260,7 @@
                 <a href="#" onclick="switchTab('history'); return false;" style="font-size: 0.82rem; color: #a78bfa; text-decoration: none; font-weight: 600;">View All →</a>
               </div>
               <div class="trades-list" id="dashboard-recent-trades">
-                <div style="text-align: center; color: var(--text-dim); padding: 40px;">No trades recorded yet. Upload a CSV or load demo data.</div>
+                <div style="text-align: center; color: var(--text-dim); padding: 40px;">No trades recorded yet. Upload your Quotex CSV to see analytics.</div>
               </div>
             </div>
 
@@ -322,7 +316,6 @@
                   <span>No Trades</span>
                 </div>
               </div>
-            </div>
             </div>
           </div>
         </div>
@@ -707,17 +700,11 @@
 
             <!-- Action buttons -->
             <div style="display: flex; gap: 12px; margin-top: 24px; justify-content: center; flex-wrap: wrap;">
-              <button class="btn btn-secondary" onclick="loadSampleData()">
-                ⚡ Load Sample Quotex Trades
-              </button>
               <button class="btn btn-secondary" onclick="exportSampleCSV()">
                 📥 Download CSV Template
               </button>
               <button class="btn btn-secondary" onclick="backupDatabase()" title="Download the full SQLite database backup">
                 💾 Backup Database (.db)
-              </button>
-              <button class="btn btn-danger" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5;" onclick="confirmClearSampleTrades()" title="Deletes only the fake sample trades, keeps your real Quotex trades">
-                🧹 Remove Demo Trades Only
               </button>
               <button class="btn btn-danger" onclick="confirmClearTrades()">
                 🗑️ Clear All Trades
@@ -763,66 +750,6 @@
     </div>
   </div>
 
-  <!-- Modal: New Single Trade -->
-  <div class="modal-overlay" id="modal-new-trade">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 style="font-size: 1.15rem; font-weight: 700;">+ Log New Trade</h3>
-        <button class="modal-close" onclick="closeNewTradeModal()">&times;</button>
-      </div>
-      <form id="form-new-trade" onsubmit="submitNewTrade(event)">
-        <div class="form-group">
-          <label class="form-label">Asset / Currency Pair</label>
-          <input type="text" id="new-trade-asset" list="asset-suggestions" class="form-control" placeholder="e.g. USD/INR (OTC)" value="USD/INR (OTC)" required>
-          <datalist id="asset-suggestions">
-            <option value="USD/INR (OTC)">
-            <option value="EUR/INR (OTC)">
-            <option value="GBP/INR (OTC)">
-            <option value="CAD/INR (OTC)">
-            <option value="USD/BRL (OTC)">
-            <option value="EUR/USD">
-            <option value="GBP/JPY (OTC)">
-            <option value="CAD/CHF (OTC)">
-            <option value="AUD/CAD (OTC)">
-          </datalist>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label class="form-label">Direction</label>
-            <select id="new-trade-direction" class="form-control">
-              <option value="UP">CALL / UP (Green)</option>
-              <option value="DOWN">PUT / DOWN (Red)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Result</label>
-            <select id="new-trade-result" class="form-control">
-              <option value="WIN">WIN (Green)</option>
-              <option value="LOSS">LOSS (Red)</option>
-              <option value="REFUND">REFUND / TIE (Yellow)</option>
-            </select>
-          </div>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label class="form-label">Investment Amount</label>
-            <input type="number" step="0.01" id="new-trade-investment" class="form-control" placeholder="100.00" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Payout %</label>
-            <input type="number" step="1" id="new-trade-payout" class="form-control" value="85" required>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Date & Time</label>
-          <input type="datetime-local" id="new-trade-date" class="form-control" required>
-        </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-          <button type="button" class="btn btn-secondary" onclick="closeNewTradeModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save Trade</button>
-        </div>
-      </form>
-  </div>
 
   <!-- Modal: Edit Single Trade (Requirement 2) -->
   <div class="modal-overlay" id="modal-edit-trade">

@@ -347,10 +347,7 @@ def clear_sample_trades_endpoint():
 # -------------------------------------------------------------------------
 @app.route('/api/load-sample', methods=['POST'])
 def load_sample_endpoint():
-    count = int(request.json.get('count', 320) if request.json else 320)
-    sample_trades = generate_sample_trades(num_trades=count)
-    inserted = insert_trades_bulk(sample_trades)
-    return jsonify({'success': True, 'inserted': inserted, 'message': f'Loaded {inserted} realistic sample Quotex trades!'})
+    return jsonify({'success': False, 'message': 'Sample trades feature has been disabled.'}), 403
 
 @app.route('/api/export-sample-csv', methods=['GET'])
 def export_sample_csv():

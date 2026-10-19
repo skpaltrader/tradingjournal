@@ -85,7 +85,7 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
-  z-index: 100;
+  z-index: 950;
   flex-shrink: 0;
 }
 
@@ -231,8 +231,7 @@ body {
 
 .top-bar {
   height: 70px;
-  background-color: rgba(17, 21, 36, 0.75);
-  backdrop-filter: blur(12px);
+  background-color: #111524 !important;
   border-bottom: 1px solid var(--border-color);
   padding: 0 28px;
   display: flex;
@@ -240,7 +239,8 @@ body {
   justify-content: space-between;
   position: sticky;
   top: 0;
-  z-index: 90;
+  z-index: 900;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
 }
 
 .top-bar-left {
