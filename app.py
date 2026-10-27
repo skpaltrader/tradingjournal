@@ -294,8 +294,11 @@ def trades_endpoint():
     asset_filter = request.args.get('asset')
     search = request.args.get('search')
     currency = request.args.get('currency', 'INR')
+    date_filter = request.args.get('date')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
     
-    result = get_trades(limit=limit, offset=offset, result_filter=result_filter, asset_filter=asset_filter, search=search, currency=currency)
+    result = get_trades(limit=limit, offset=offset, result_filter=result_filter, asset_filter=asset_filter, search=search, currency=currency, date_filter=date_filter, start_date=start_date, end_date=end_date)
     return jsonify({'success': True, 'data': result})
 
 @app.route('/api/trades/<int:trade_id>', methods=['GET'])

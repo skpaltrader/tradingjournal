@@ -28,17 +28,14 @@
         <a class="nav-item active" data-tab="dashboard">
           <span class="icon">📊</span>
           <span>Dashboard</span>
-          <span class="nav-badge-hot">HOT</span>
         </a>
         <a class="nav-item" data-tab="analytics">
           <span class="icon">📈</span>
           <span>Analytics</span>
-          <span class="nav-badge-hot">HOT</span>
         </a>
         <a class="nav-item" data-tab="breakdown">
           <span class="icon">📅</span>
           <span>P&L Breakdown</span>
-          <span class="nav-badge-hot">HOT</span>
         </a>
         <a class="nav-item" data-tab="heatmap-tab">
           <span class="icon">🗓️</span>
@@ -47,7 +44,6 @@
         <a class="nav-item" data-tab="history">
           <span class="icon">📜</span>
           <span>Trade History</span>
-          <span class="nav-badge-count" id="sidebar-total-badge">0</span>
         </a>
         <a class="nav-item" data-tab="import-csv">
           <span class="icon">📥</span>
@@ -562,6 +558,46 @@
               <button class="btn btn-danger btn-sm" onclick="confirmClearTrades()">
                 🗑️ Clear All Trades
               </button>
+            </div>
+          </div>
+
+          <!-- Day / Period Summary Banner (Shown when filtering by a specific day, week, month, quarter or year from P&L Breakdown) -->
+          <div id="history-day-summary" class="day-summary-banner" style="display: none;">
+            <div class="day-summary-header">
+              <div class="day-summary-title">
+                <span class="day-icon">📅</span>
+                <span class="day-title-text"><span id="history-period-type-prefix">Trading Period</span>: <strong id="history-day-date-label">2026-10-27</strong></span>
+                <span class="day-pnl-pill" id="history-day-pnl-badge">+₹0.00</span>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="clearHistoryDayFilter()" style="font-weight: 600;">
+                ✕ Show All Trades
+              </button>
+            </div>
+            <div class="day-summary-grid">
+              <div class="day-stat-card">
+                <span class="day-stat-label">Total Trades</span>
+                <span class="day-stat-value" id="history-day-total">0</span>
+              </div>
+              <div class="day-stat-card stat-profit">
+                <span class="day-stat-label">🟢 Profit (Wins)</span>
+                <span class="day-stat-value" id="history-day-wins">0</span>
+              </div>
+              <div class="day-stat-card stat-loss">
+                <span class="day-stat-label">🔴 Loss</span>
+                <span class="day-stat-value" id="history-day-losses">0</span>
+              </div>
+              <div class="day-stat-card stat-refund">
+                <span class="day-stat-label">🟡 BE (Break-Even)</span>
+                <span class="day-stat-value" id="history-day-refunds">0</span>
+              </div>
+              <div class="day-stat-card">
+                <span class="day-stat-label">Traded Volume</span>
+                <span class="day-stat-value" id="history-day-volume">₹0.00</span>
+              </div>
+              <div class="day-stat-card stat-net">
+                <span class="day-stat-label">Period Net P&L</span>
+                <span class="day-stat-value" id="history-day-net-pnl">₹0.00</span>
+              </div>
             </div>
           </div>
 

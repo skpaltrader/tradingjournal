@@ -108,6 +108,12 @@ function initNavigation() {
   navItems.forEach(item => {
     item.addEventListener('click', () => {
       const tabName = item.getAttribute('data-tab');
+      if (tabName === 'history') {
+        activeHistoryPeriodFilter = null;
+        activeHistoryDateFilter = null;
+        const banner = document.getElementById('history-day-summary');
+        if (banner) banner.style.display = 'none';
+      }
       switchTab(tabName);
 
       // Close mobile sidebar if open
@@ -747,12 +753,7 @@ function buildCalendarDaysGrid(containerId, year, month, daysData, isCompact = f
       dayEl.title = `${dayStr}\nP&L: ${formatAmount(pnl)}${isBreakeven ? ' (Breakeven: No Loss No Gain)' : ''}\nTraded Volume: ${dayInfo.volume ? formatAmount(dayInfo.volume, false) : formatAmount(0, false)}\nTrades: ${dayInfo.trades_count} (${dayInfo.wins}W / ${dayInfo.losses}L / ${dayInfo.refunds}R)\nClick to view trades for this day`;
       dayEl.style.cursor = 'pointer';
       dayEl.addEventListener('click', () => {
-        switchTab('history');
-        const searchInput = document.getElementById('history-search-input');
-        if (searchInput) {
-          searchInput.value = dayStr;
-          loadTradeHistory(0);
-        }
+        showDayTradeHistory(dayStr);
       });
     } else {
       dayEl.innerHTML = `<div class="day-number">${d}</div>`;
@@ -895,11 +896,11 @@ function loadBreakdownView(type, btnEl) {
 async function loadBreakdownData(periodType) {
   try {
     const titles = {
-      'daily': '📅 Daily P&L Breakdown',
-      'weekly': '📆 Weekly P&L Breakdown',
-      'monthly': '🗓️ Monthly P&L Breakdown',
-      '3month': '📊 3-Month / Quarterly P&L Breakdown',
-      '1year': '📈 1-Year / Annual P&L Breakdown'
+      'daily': '📅 Daily P&L Breakdown <span style="font-size: 0.78rem; font-weight: 500; color: #a78bfa; margin-left: 8px;">(Click any day to view trades)</span>',
+      'weekly': '📆 Weekly P&L Breakdown <span style="font-size: 0.78rem; font-weight: 500; color: #a78bfa; margin-left: 8px;">(Click any week to view trades)</span>',
+      'monthly': '🗓️ Monthly P&L Breakdown <span style="font-size: 0.78rem; font-weight: 500; color: #a78bfa; margin-left: 8px;">(Click any month to view trades)</span>',
+      '3month': '📊 3-Month / Quarterly P&L Breakdown <span style="font-size: 0.78rem; font-weight: 500; color: #a78bfa; margin-left: 8px;">(Click any quarter to view trades)</span>',
+      '1year': '📈 1-Year / Annual P&L Breakdown <span style="font-size: 0.78rem; font-weight: 500; color: #a78bfa; margin-left: 8px;">(Click any year to view trades)</span>'
     };
     document.getElementById('breakdown-table-title').innerHTML = `<span>${titles[periodType] || 'P&L Breakdown'}</span>`;
 
@@ -916,6 +917,7 @@ async function loadBreakdownData(periodType) {
 
     let netSum = 0;
     let volSum = 0;
+
     tbody.innerHTML = res.breakdown.map(item => {
       netSum += item.net_pnl;
       volSum += (item.total_volume || 0);
@@ -923,9 +925,16 @@ async function loadBreakdownData(periodType) {
       const isNeg = item.net_pnl < 0;
       const pnlClass = isPos ? 'text-win' : isNeg ? 'text-loss' : 'text-refund';
       
+      const safeLabel = encodeURIComponent(item.period_label || '');
+      const sDate = item.start_date || '';
+      const eDate = item.end_date || '';
+      const rowClickAttr = `class="clickable-breakdown-row" onclick="showPeriodTradeHistory('${sDate}', '${eDate}', '${safeLabel}', '${periodType}')" title="Click to view all trades, profit, loss & BE trades for ${item.period_label}"`;
+        
+      const periodHtml = `<div class="period-cell-content"><span>${item.period_label}</span><span class="period-view-btn">View Trades ➔</span></div>`;
+
       return `
-        <tr>
-          <td style="font-weight: 700;">${item.period_label}</td>
+        <tr ${rowClickAttr}>
+          <td style="font-weight: 700;">${periodHtml}</td>
           <td style="text-align: center; font-weight: 600;">${item.total_trades}</td>
           <td style="text-align: center;"><span class="badge-win">${item.wins}</span></td>
           <td style="text-align: center;"><span class="badge-loss">${item.losses}</span></td>
@@ -950,8 +959,45 @@ async function loadBreakdownData(periodType) {
 }
 
 // -------------------------------------------------------------------------
-// TRADE HISTORY
+// TRADE HISTORY & PERIOD FILTER (DAILY, WEEKLY, MONTHLY, QUARTERLY, ANNUAL)
 // -------------------------------------------------------------------------
+let activeHistoryPeriodFilter = null; // { startDate, endDate, label, periodType }
+let activeHistoryDateFilter = null;   // Backward compatibility
+
+function showPeriodTradeHistory(startDate, endDate, encodedLabel, periodType) {
+  const label = decodeURIComponent(encodedLabel || '');
+  activeHistoryPeriodFilter = {
+    startDate: startDate || '',
+    endDate: endDate || '',
+    label: label,
+    periodType: periodType || 'daily'
+  };
+  activeHistoryDateFilter = startDate === endDate ? startDate : null;
+
+  // Clear any text filters so all trades from this period are shown
+  const searchInput = document.getElementById('history-search-input');
+  if (searchInput) searchInput.value = '';
+  const resultFilter = document.getElementById('history-result-filter');
+  if (resultFilter) resultFilter.value = '';
+  const assetFilter = document.getElementById('history-asset-filter');
+  if (assetFilter) assetFilter.value = '';
+
+  switchTab('history');
+  loadTradeHistory(0);
+}
+
+function showDayTradeHistory(dateStr) {
+  showPeriodTradeHistory(dateStr, dateStr, encodeURIComponent(dateStr), 'daily');
+}
+
+function clearHistoryDayFilter() {
+  activeHistoryPeriodFilter = null;
+  activeHistoryDateFilter = null;
+  const banner = document.getElementById('history-day-summary');
+  if (banner) banner.style.display = 'none';
+  loadTradeHistory(0);
+}
+
 async function loadTradeHistory(page = 0) {
   currentHistoryPage = page;
   const offset = page * HISTORY_PAGE_SIZE;
@@ -969,11 +1015,89 @@ async function loadTradeHistory(page = 0) {
     currency: getActiveCurrencyCode()
   });
 
+  if (activeHistoryPeriodFilter) {
+    if (activeHistoryPeriodFilter.startDate && activeHistoryPeriodFilter.endDate) {
+      params.set('start_date', activeHistoryPeriodFilter.startDate);
+      params.set('end_date', activeHistoryPeriodFilter.endDate);
+    } else if (activeHistoryPeriodFilter.label) {
+      params.set('date', activeHistoryPeriodFilter.label);
+    }
+  } else if (activeHistoryDateFilter) {
+    params.set('date', activeHistoryDateFilter);
+  }
+
   try {
     const res = await fetch(`/api/trades?${params.toString()}`).then(r => r.json());
     if (!res.success) return;
 
-    const { trades, total, assets } = res.data;
+    const { trades, total, assets, summary } = res.data;
+
+    // Handle Period Summary Banner
+    const banner = document.getElementById('history-day-summary');
+    if (banner) {
+      const activeFilter = activeHistoryPeriodFilter || (activeHistoryDateFilter ? { startDate: activeHistoryDateFilter, endDate: activeHistoryDateFilter, label: activeHistoryDateFilter, periodType: 'daily' } : null);
+      if (activeFilter && summary) {
+        banner.style.display = 'block';
+
+        const typeLabels = {
+          'daily': 'Trading Day',
+          'weekly': 'Trading Week',
+          'monthly': 'Trading Month',
+          '3month': 'Quarterly Period',
+          '1year': 'Annual Period'
+        };
+        const prefixEl = document.getElementById('history-period-type-prefix');
+        if (prefixEl) {
+          prefixEl.textContent = typeLabels[activeFilter.periodType] || 'Trading Period';
+        }
+
+        const dateLabel = document.getElementById('history-day-date-label');
+        if (dateLabel) {
+          if (activeFilter.periodType === 'daily') {
+            try {
+              const dObj = new Date(activeFilter.label + 'T00:00:00');
+              const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+              dateLabel.textContent = `${activeFilter.label} (${dayName})`;
+            } catch(e) {
+              dateLabel.textContent = activeFilter.label;
+            }
+          } else {
+            dateLabel.textContent = activeFilter.label;
+          }
+        }
+
+        const pnlBadge = document.getElementById('history-day-pnl-badge');
+        if (pnlBadge) {
+          const isPos = summary.total_profit > 0;
+          const isNeg = summary.total_profit < 0;
+          pnlBadge.textContent = (isPos ? '+' : '') + formatAmount(summary.total_profit);
+          pnlBadge.className = 'day-pnl-pill ' + (isPos ? 'pnl-win' : isNeg ? 'pnl-loss' : 'pnl-neutral');
+        }
+
+        const totalEl = document.getElementById('history-day-total');
+        if (totalEl) totalEl.textContent = summary.total_trades;
+        
+        const winsEl = document.getElementById('history-day-wins');
+        if (winsEl) winsEl.textContent = summary.wins;
+
+        const lossesEl = document.getElementById('history-day-losses');
+        if (lossesEl) lossesEl.textContent = summary.losses;
+
+        const refundsEl = document.getElementById('history-day-refunds');
+        if (refundsEl) refundsEl.textContent = summary.refunds;
+
+        const volEl = document.getElementById('history-day-volume');
+        if (volEl) volEl.textContent = formatAmount(summary.total_volume, false);
+
+        const netPnlEl = document.getElementById('history-day-net-pnl');
+        if (netPnlEl) {
+          netPnlEl.textContent = formatAmount(summary.total_profit);
+          netPnlEl.className = 'day-stat-value ' + (summary.total_profit > 0 ? 'text-win' : summary.total_profit < 0 ? 'text-loss' : 'text-refund');
+        }
+      } else {
+        banner.style.display = 'none';
+      }
+    }
 
     // Populate asset dropdown if not already populated
     const assetSelect = document.getElementById('history-asset-filter');
@@ -1033,7 +1157,9 @@ async function loadTradeHistory(page = 0) {
     // Pagination info
     const startIdx = total === 0 ? 0 : offset + 1;
     const endIdx = Math.min(offset + HISTORY_PAGE_SIZE, total);
-    document.getElementById('history-pagination-info').textContent = `Showing ${startIdx} to ${endIdx} of ${total} trades`;
+    const activeLabel = activeHistoryPeriodFilter ? activeHistoryPeriodFilter.label : (activeHistoryDateFilter || '');
+    const dayContextText = activeLabel ? ` for ${activeLabel}` : '';
+    document.getElementById('history-pagination-info').textContent = `Showing ${startIdx} to ${endIdx} of ${total} trades${dayContextText}`;
 
     document.getElementById('btn-history-prev').disabled = page <= 0;
     document.getElementById('btn-history-next').disabled = endIdx >= total;

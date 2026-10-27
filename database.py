@@ -796,6 +796,8 @@ def get_breakdown(period_type='daily', currency='INR'):
             label = f"{r['period_key']} ({r['week_start']} to {r['week_end']})"
             rows.append({
                 'period_label': label,
+                'start_date': r['week_start'],
+                'end_date': r['week_end'],
                 'total_trades': r['total_trades'],
                 'wins': r['wins'],
                 'losses': r['losses'],
@@ -847,6 +849,8 @@ def get_breakdown(period_type='daily', currency='INR'):
             label = f"{r['period_label']} ({r['start_month']} ~ {r['end_month']})"
             rows.append({
                 'period_label': label,
+                'start_date': f"{r['start_month']}-01",
+                'end_date': f"{r['end_month']}-31",
                 'total_trades': r['total_trades'],
                 'wins': r['wins'],
                 'losses': r['losses'],
@@ -885,9 +889,32 @@ def get_breakdown(period_type='daily', currency='INR'):
         decisive = wins + losses
         win_rate = round((wins / decisive * 100), 1) if decisive > 0 else 0.0
         net_pnl = r['net_pnl'] or 0.0
+
+        p_label = r['period_label']
+        if period_type == 'daily':
+            s_date = p_label
+            e_date = p_label
+        elif period_type == 'weekly':
+            s_date = r['start_date'] if isinstance(r, dict) else ''
+            e_date = r['end_date'] if isinstance(r, dict) else ''
+        elif period_type == 'monthly':
+            s_date = f"{p_label}-01"
+            e_date = f"{p_label}-31"
+        elif period_type == '3month':
+            s_date = r['start_date'] if isinstance(r, dict) else ''
+            e_date = r['end_date'] if isinstance(r, dict) else ''
+        elif period_type == '1year':
+            s_date = f"{p_label}-01-01"
+            e_date = f"{p_label}-12-31"
+        else:
+            s_date = ''
+            e_date = ''
         
         result_list.append({
-            'period_label': r['period_label'],
+            'period_label': p_label,
+            'start_date': s_date,
+            'end_date': e_date,
+            'period_type': period_type,
             'total_trades': r['total_trades'],
             'wins': wins,
             'losses': losses,
@@ -902,13 +929,43 @@ def get_breakdown(period_type='daily', currency='INR'):
         })
     return result_list
 
-def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search=None, currency='INR'):
+def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search=None, currency='INR', date_filter=None, start_date=None, end_date=None):
     conn = get_connection()
     cursor = conn.cursor()
     
     where_clauses = []
     params = []
     
+    if start_date and start_date.strip() and end_date and end_date.strip():
+        sd = start_date.strip()
+        ed = end_date.strip()
+        if sd == ed:
+            where_clauses.append("substr(t.date_time, 1, 10) = ?")
+            params.append(sd)
+        else:
+            where_clauses.append("substr(t.date_time, 1, 10) >= ? AND substr(t.date_time, 1, 10) <= ?")
+            params.extend([sd, ed])
+    elif start_date and start_date.strip():
+        where_clauses.append("substr(t.date_time, 1, 10) >= ?")
+        params.append(start_date.strip())
+    elif end_date and end_date.strip():
+        where_clauses.append("substr(t.date_time, 1, 10) <= ?")
+        params.append(end_date.strip())
+    elif date_filter and date_filter.strip():
+        df = date_filter.strip()
+        if len(df) == 10:
+            where_clauses.append("substr(t.date_time, 1, 10) = ?")
+            params.append(df)
+        elif len(df) == 7:
+            where_clauses.append("substr(t.date_time, 1, 7) = ?")
+            params.append(df)
+        elif len(df) == 4:
+            where_clauses.append("substr(t.date_time, 1, 4) = ?")
+            params.append(df)
+        else:
+            where_clauses.append("substr(t.date_time, 1, 10) = ?")
+            params.append(df)
+
     if result_filter and result_filter.upper() in ['WIN', 'LOSS', 'REFUND']:
         where_clauses.append("t.result = ?")
         params.append(result_filter.upper())
@@ -918,9 +975,9 @@ def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search
         params.append(asset_filter.strip())
         
     if search and search.strip():
-        where_clauses.append("(t.asset LIKE ? OR t.trade_id LIKE ?)")
+        where_clauses.append("(t.asset LIKE ? OR t.trade_id LIKE ? OR t.date_time LIKE ?)")
         s = f"%{search.strip()}%"
-        params.extend([s, s])
+        params.extend([s, s, s])
         
     where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     
@@ -930,6 +987,33 @@ def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search
     total_count = cursor.fetchone()['total']
     
     is_usd = (currency and currency.upper() == 'USD')
+
+    # Get summary (total profit, volume, wins, losses, refunds) for filtered trades
+    pnl_sum_expr = "ROUND(SUM(t.profit / COALESCE(er.usd_inr_rate, 95.0757)), 2)" if is_usd else "ROUND(SUM(t.profit), 2)"
+    vol_sum_expr = "ROUND(SUM(t.investment / COALESCE(er.usd_inr_rate, 95.0757)), 2)" if is_usd else "ROUND(SUM(t.investment), 2)"
+    summary_query = f'''
+        SELECT 
+            COUNT(*) as total_trades,
+            COALESCE(SUM(CASE WHEN t.result = 'WIN' THEN 1 ELSE 0 END), 0) as wins,
+            COALESCE(SUM(CASE WHEN t.result = 'LOSS' THEN 1 ELSE 0 END), 0) as losses,
+            COALESCE(SUM(CASE WHEN t.result = 'REFUND' THEN 1 ELSE 0 END), 0) as refunds,
+            COALESCE({pnl_sum_expr}, 0.0) as total_profit,
+            COALESCE({vol_sum_expr}, 0.0) as total_volume
+        FROM trades t
+        LEFT JOIN exchange_rates er ON er.date = substr(t.date_time, 1, 10)
+        {where_str}
+    '''
+    cursor.execute(summary_query, params)
+    srow = cursor.fetchone()
+    summary = {
+        'total_trades': srow['total_trades'] if srow else 0,
+        'wins': srow['wins'] if srow else 0,
+        'losses': srow['losses'] if srow else 0,
+        'refunds': srow['refunds'] if srow else 0,
+        'total_profit': srow['total_profit'] if srow else 0.0,
+        'total_volume': srow['total_volume'] if srow else 0.0,
+        'currency': 'USD' if is_usd else 'INR'
+    }
     
     # Get rows with exchange rate joined
     data_query = f'''
@@ -970,6 +1054,7 @@ def get_trades(limit=50, offset=0, result_filter=None, asset_filter=None, search
         'offset': offset,
         'assets': assets,
         'trades': trades_out,
+        'summary': summary,
         'currency': 'USD' if is_usd else 'INR'
     }
 
